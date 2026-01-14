@@ -281,6 +281,42 @@ function buildCSV(){
     const it = byEan.get(ean);
     if(!it) continue;
     items.push({...it, unidades: units});
+    async function compartirCSV(){
+  const csv = buildCSV();
+  const fileName = `balance_${state.sesionId || 'sin_sesion'}.csv`;
+
+  // crea un "archivo" para compartir
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const file = new File([blob], fileName, { type: 'text/csv;charset=utf-8' });
+
+  // Web Share API (móvil)
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
+      await navigator.share({
+        title: fileName,
+        text: `Balance stock · ${state.tienda || ''} · ${state.uso || ''}`,
+        files: [file],
+      });
+      toast('Compartido');
+      return;
+    }
+  } catch (e) {
+    // si el usuario cancela o falla, caemos al fallback
+  }
+
+  // Fallback: descarga normal
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+  toast('Descargado', 'Ahora envíalo por WhatsApp/email');
+}
+
   }
   items.sort((a,b)=>{
     const da = (a.descripcion||'').localeCompare(b.descripcion||'', 'es', {sensitivity:'base'});
