@@ -422,7 +422,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
 
   $('btnNuevaSesion').onclick = nuevaSesion;
 
-  $('tienda').addEventListener('input', e=> state.tienda = e.target.value);
+  $('tienda').addEventListener('change', e=> state.tienda = e.target.value);
+
   $('uso').addEventListener('change', e=> state.uso = e.target.value);
 
   $('buscar').addEventListener('input', e=> fillResultados(e.target.value));
