@@ -131,6 +131,28 @@ function updateStats(){
   $('statUnidades').textContent=u;
   $('btnUndo').disabled = state.undo.length===0;
 }
+function updateActionLocks(){
+  const hasTienda = !!(state.tienda && state.tienda.trim());
+  const hasSesion  = !!state.sesionId;
+
+  let total = 0;
+  for (const v of state.counts.values()) total += (Number(v) || 0);
+  const hasUnits = total > 0;
+
+  const canSend = hasTienda && hasSesion && hasUnits;
+
+  // Botones de enviar/exportar
+  if ($('btnCompartir')) $('btnCompartir').disabled = !canSend;
+  if ($('btnExport')) $('btnExport').disabled = !canSend;
+
+  // Mensaje útil
+  const hints = [];
+  if (!hasTienda) hints.push('elige tienda');
+  if (!hasSesion) hints.push('inicia sesión');
+  if (!hasUnits) hints.push('añade unidades');
+
+  if (!canSend) $('csvPreview').placeholder = `Para compartir: ${hints.join(' + ')}.`;
+}
 
 /* ===================== BUSQUEDA ===================== */
 function tokenize(q){
