@@ -255,29 +255,116 @@ function rebuildResumen(){
   out.push(`TOTAL ALBARAN ${t}`);
   $('csvPreview').value=out.join('\n');
 }
+// ===== Cámara (BarcodeDetector) =====
+let stream = null;
+let scanning = false;
+let barcodeDetector = null;
+let rafId = null;
+let lastSeen = { value: null, at: 0 };
 
-/* ===================== INIT ===================== */
+async function initBarcodeDetector(){
+  if ('BarcodeDetector' in window) {
+    try {
+      barcodeDetector = new BarcodeDetector({
+        formats: ['ean_13','ean_8','upc_a','upc_e','code_128','code_39','qr_code']
+      });
+      return true;
+    } catch (e) {}
+  }
+  barcodeDetector = null;
+  return false;
+}
+
+async function startCamera(){
+  if(!ensureSesion()) return;
+
+  const ok = await initBarcodeDetector();
+  if(!ok){
+    toast('No compatible', 'Usa Chrome Android o “Sumar por EAN”');
+    return;
+  }
+
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode:'environment', width:{ideal:1280}, height:{ideal:720} },
+      audio: false
+    });
+
+    $('video').srcObject = stream;
+    await $('video').play();
+
+    if ($('cameraWrap')) $('cameraWrap').style.display = '';
+    if ($('btnStartCam')) $('btnStartCam').disabled = true;
+    if ($('btnStopCam')) $('btnStopCam').disabled = false;
+
+    scanning = true;
+    loopScan();
+    toast('Cámara lista');
+  } catch (e){
+    toast('Sin cámara', 'Permite acceso a cámara');
+  }
+}
+
+function stopCamera(){
+  scanning = false;
+
+  if (rafId) cancelAnimationFrame(rafId);
+  rafId = null;
+
+  if (stream){
+    for (const t of stream.getTracks()) t.stop();
+    stream = null;
+  }
+
+  if ($('cameraWrap')) $('cameraWrap').style.display = 'none';
+  if ($('btnStartCam')) $('btnStartCam').disabled = false;
+  if ($('btnStopCam')) $('btnStopCam').disabled = true;
+
+  toast('Cámara cerrada');
+}
+
+async function loopScan(){
+  if(!scanning || !barcodeDetector) return;
+
+  try{
+    const codes = await barcodeDetector.detect($('video'));
+    if (codes && codes.length){
+      const raw = String(codes[0].rawValue || '').trim();
+      const now = Date.now();
+      if (raw && (lastSeen.value !== raw || (now - lastSeen.at) > 700)){
+        lastSeen = { value: raw, at: now };
+        addOneByEan(raw);
+      }
+    }
+  } catch(e){}
+
+  rafId = requestAnimationFrame(loopScan);
+}
+
 window.addEventListener('DOMContentLoaded', async ()=>{
   await loadCatalogo();
 
-  $('tabScan').onclick=()=>setTab('tabScan');
-  $('tabManual').onclick=()=>setTab('tabManual');
-  $('tabResumen').onclick=()=>setTab('tabResumen');
+  $('tabScan').onclick = ()=>setTab('tabScan');
+  $('tabManual').onclick = ()=>setTab('tabManual');
+  $('tabResumen').onclick = ()=>setTab('tabResumen');
 
-  $('btnNuevaSesion').onclick=nuevaSesion;
+  if ($('btnStartCam')) $('btnStartCam').onclick = startCamera;
+  if ($('btnStopCam')) $('btnStopCam').onclick = stopCamera;
+
+  $('btnNuevaSesion').onclick = nuevaSesion;
   $('tienda').onchange = e => { state.tienda = e.target.value; updateActionLocks(); };
-  $('uso').onchange=e=>state.uso=e.target.value;
+  $('uso').onchange = e => { state.uso = e.target.value; };
 
-  $('buscar').oninput=e=>fillResultados(e.target.value);
-  $('resultado').onchange=e=>renderManualItem(e.target.value);
-  $('manualBox').onclick=manualClick;
+  $('buscar').oninput = e => fillResultados(e.target.value);
+  $('resultado').onchange = e => renderManualItem(e.target.value);
+  $('manualBox').onclick = manualClick;
 
-  $('btnUndo').onclick=undo;
-  $('btnGrabarLinea').onclick=()=>toast('Línea grabada');
-  $('btnExport').onclick=()=>compartirCSV();
-  $('btnCompartir').onclick=compartirCSV;
+  $('btnUndo').onclick = undo;
+  $('btnGrabarLinea').onclick = ()=>toast('Línea grabada');
+
+  $('btnExport').onclick = compartirCSV;
+  $('btnCompartir').onclick = compartirCSV;
 
   updateStats();
   updateActionLocks();
-
 });
