@@ -243,18 +243,53 @@ async function compartirCSV(){
 
 /* ===================== RESUMEN ===================== */
 function rebuildResumen(){
-  const m=new Map();
-  let t=0;
-  for(const [ean,u] of state.counts){
-    if(u<=0) continue;
-    const d=byEan.get(ean).descripcion;
-    m.set(d,(m.get(d)||0)+u);
-    t+=u;
+  // desc -> Map(talla -> unidades)
+  const agg = new Map();
+  let totalAlbaran = 0;
+
+  for (const [ean, u] of state.counts.entries()){
+    const units = Number(u) || 0;
+    if (units <= 0) continue;
+
+    const it = byEan.get(ean);
+    if (!it) continue;
+
+    const desc = (it.descripcion || '').trim();
+    const talla = String(it.talla || '').trim();
+
+    if (!agg.has(desc)) agg.set(desc, new Map());
+    const tmap = agg.get(desc);
+
+    tmap.set(talla, (tmap.get(talla) || 0) + units);
+    totalAlbaran += units;
   }
-  const out=[...m.entries()].map(([d,u])=>`${d}: ${u}`);
-  out.push(`TOTAL ALBARAN ${t}`);
-  $('csvPreview').value=out.join('\n');
+
+  // Orden por descripción
+  const descs = Array.from(agg.keys()).sort((a,b)=>
+    a.localeCompare(b, 'es', { sensitivity:'base' })
+  );
+
+  const lines = [];
+
+  for (const desc of descs){
+    const tmap = agg.get(desc);
+    const tallas = Array.from(tmap.entries()).sort((a,b)=>
+      String(a[0]).localeCompare(String(b[0]), 'es', { numeric:true })
+    );
+
+    let totalDesc = 0;
+    const chunk = tallas.map(([t, n])=>{
+      totalDesc += n;
+      return `${t}/${n}`;
+    }).join(' ');
+
+    lines.push(`${desc}: ${chunk} TOTAL ${totalDesc}`);
+  }
+
+  lines.push(`TOTAL ALBARAN ${totalAlbaran}`);
+  $('csvPreview').value = lines.join('\n');
 }
+
 // ===== Cámara (BarcodeDetector) =====
 let stream = null;
 let scanning = false;
