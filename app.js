@@ -405,5 +405,6 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   $('btnCompartir').onclick = compartirCSV;
 
   updateStats();
+  saveSession();
   updateActionLocks();
 });
