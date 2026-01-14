@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Balance de Stock</title>
+<link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+
+<header>
+  <div class="wrap title">
+    <div>
+      <h1>Balance de stock</h1>
+      <div class="hint">Escanea para sumar +1, o usa Manual (buscar → tallas → grabar línea).</div>
+    </div>
+    <div class="pill" id="buildPill">Cargando catálogo…</div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <div class="card">
+    <div class="grid3">
+      <div>
+        <label>Tienda</label>
+        <input id="tienda" placeholder="Ej: Hermosilla / Valencia"/>
+      </div>
+      <div>
+        <label>Uso</label>
+        <select id="uso">
+          <option value="NUEVO">NUEVO</option>
+          <option value="USADO">USADO</option>
+        </select>
+      </div>
+      <div>
+        <label>Sesión</label>
+        <button class="primary" id="btnNuevaSesion">Iniciar sesión</button>
+        <div class="hint small" id="sesionHint">Sin sesión</div>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+
+    <div class="tabs">
+      <button class="tab active" id="tabScan">Escanear</button>
+      <button class="tab" id="tabManual">Manual</button>
+      <button class="tab" id="tabResumen">Resumen</button>
+    </div>
+  </div>
+
+  <!-- ESCANEAR -->
+  <section class="card" id="panelScan">
+    <div class="row" style="justify-content:space-between">
+      <div class="hint">Si el escaneo no va en tu móvil, usa “Sumar por EAN (teclado)”.</div>
+      <div class="row">
+        <button class="good" id="btnStartCam">Abrir cámara</button>
+        <button id="btnStopCam" disabled>Cerrar</button>
+      </div>
+    </div>
+    <div class="cameraWrap" id="cameraWrap" style="display:none;margin-top:10px">
+      <video id="video" playsinline></video>
+      <div class="scanBox"></div>
+    </div>
+
+    <div class="sep"></div>
+    <div class="row">
+      <button id="btnUndo" disabled>Deshacer último</button>
+      <button id="btnAddByEan">Sumar por EAN (teclado)</button>
+      <button id="btnLimpiar">Poner todo a 0</button>
+    </div>
+
+    <div class="sep"></div>
+    <div class="statbar">
+      <div class="stat"><div class="k">Líneas</div><div class="v" id="statLineas">0</div></div>
+      <div class="stat"><div class="k">Unidades</div><div class="v" id="statUnidades">0</div></div>
+      <div class="stat"><div class="k">Último</div><div class="v" id="statUltimo">—</div></div>
+    </div>
+  </section>
+
+  <!-- MANUAL -->
+  <section class="card" id="panelManual" style="display:none">
+    <label>Buscar (orden libre: “999 CHQ C” → “CHQ C 999…”) </label>
+    <input id="buscar" placeholder="Ej: 999 CHQ C, camisa, 1234…"/>
+
+    <div class="sep"></div>
+
+    <label>Resultados</label>
+    <select id="resultado" size="8"></select>
+    <div class="hint small">Tip: escribe 2–3 palabras para afinar. Se busca por código, familia y descripción.</div>
+
+    <div class="sep"></div>
+
+    <div id="manualHeader" class="hint">Selecciona un artículo para ver sus tallas.</div>
+    <div id="manualBox" class="list" style="margin-top:10px"></div>
+
+    <div class="row" style="margin-top:10px">
+      <button class="primary" id="btnGrabarLinea" disabled>Grabar línea y seguir</button>
+      <button id="btnLimpiarManual">Limpiar selección</button>
+    </div>
+  </section>
+
+  <!-- RESUMEN -->
+  <section class="card" id="panelResumen" style="display:none">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-weight:800">Exportar</div>
+        <div class="hint small">CSV con “;” (incluye tienda/uso/sesión).</div>
+      </div>
+      <div class="row">
+        <button class="primary" id="btnExport">Exportar CSV</button>
+        <button id="btnCopiar">Copiar CSV</button>
+      </div>
+    </div>
+    <div class="sep"></div>
+    <textarea id="csvPreview" rows="12" spellcheck="false"></textarea>
+  </section>
+
+</main>
+
+<div class="toast" id="toast">
+  <div class="t" id="toastT">OK</div>
+  <div class="s" id="toastS">—</div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
