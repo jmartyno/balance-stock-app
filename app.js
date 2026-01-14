@@ -274,16 +274,11 @@ async function initBarcodeDetector(){
   barcodeDetector = null;
   return false;
 }
-
 async function startCamera(){
+  // 1) exige sesión (si quieres que abra aunque no haya sesión, quita este if)
   if(!ensureSesion()) return;
 
-  const ok = await initBarcodeDetector();
-  if(!ok){
-    toast('No compatible', 'Usa Chrome Android o “Sumar por EAN”');
-    return;
-  }
-
+  // 2) abre cámara SIEMPRE
   try{
     stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode:'environment', width:{ideal:1280}, height:{ideal:720} },
@@ -297,12 +292,21 @@ async function startCamera(){
     if ($('btnStartCam')) $('btnStartCam').disabled = true;
     if ($('btnStopCam')) $('btnStopCam').disabled = false;
 
-    scanning = true;
-    loopScan();
-    toast('Cámara lista');
   } catch (e){
     toast('Sin cámara', 'Permite acceso a cámara');
+    return;
   }
+
+  // 3) intenta activar el detector (si no hay, al menos ya ves la cámara)
+  const ok = await initBarcodeDetector();
+  if(!ok){
+    toast('Cámara abierta', 'Este móvil/navegador no soporta escaneo automático');
+    return;
+  }
+
+  scanning = true;
+  loopScan();
+  toast('Cámara lista', 'Escaneando…');
 }
 
 function stopCamera(){
