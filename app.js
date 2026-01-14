@@ -497,6 +497,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     setTimeout(()=>URL.revokeObjectURL(url), 1000);
     toast('Exportado', file);
   };
+  $('btnCompartir').onclick = compartirCSV;
 
   $('btnCopiar').onclick = copiarCSV;
 
