@@ -391,6 +391,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   if ($('btnStopCam')) $('btnStopCam').onclick = stopCamera;
 
   $('btnNuevaSesion').onclick = nuevaSesion;
+  $('btnCargarSesion').onclick = loadSession;
   $('tienda').onchange = e => { state.tienda = e.target.value; updateActionLocks(); };
   $('uso').onchange = e => { state.uso = e.target.value; };
 
