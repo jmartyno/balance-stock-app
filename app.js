@@ -130,7 +130,11 @@ function updateStats(){
   $('statLineas').textContent=l;
   $('statUnidades').textContent=u;
   $('btnUndo').disabled = state.undo.length===0;
+
+  updateActionLocks();
+  saveSession();
 }
+
 function updateActionLocks(){
   const hasTienda = !!(state.tienda && state.tienda.trim());
   const hasSesion  = !!state.sesionId;
