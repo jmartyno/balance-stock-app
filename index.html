@@ -22,6 +22,14 @@
 
   <div class="card">
     <div class="grid3">
+
+      <div>
+        <label>Sesión</label>
+        <button type="button" class="primary" id="btnNuevaSesion">Iniciar sesión</button>
+        <button type="button" id="btnCargarSesion">Cargar sesión</button>
+        <div class="hint small" id="sesionHint">Sin sesión</div>
+      </div>
+
       <div>
         <label>Tienda</label>
         <select id="tienda">
@@ -34,8 +42,8 @@
           <option>Zaragoza</option>
           <option>Cea</option>
         </select>
-    
       </div>
+
       <div>
         <label>Uso</label>
         <select id="uso">
@@ -43,20 +51,15 @@
           <option value="USADO">USADO</option>
         </select>
       </div>
-      <div>
-        <label>Sesión</label>
-        <button class="primary" id="btnNuevaSesion">Iniciar sesión</button>
-        <button type="button" id="btnCargarSesion">Cargar sesión</button>
-        <div class="hint small" id="sesionHint">Sin sesión</div>
-      </div>
+
     </div>
 
     <div class="sep"></div>
 
     <div class="tabs">
-      <button class="tab active" id="tabScan">Escanear</button>
-      <button class="tab" id="tabManual">Manual</button>
-      <button class="tab" id="tabResumen">Resumen</button>
+      <button class="tab active" id="tabScan" type="button">Escanear</button>
+      <button class="tab" id="tabManual" type="button">Manual</button>
+      <button class="tab" id="tabResumen" type="button">Resumen</button>
     </div>
   </div>
 
@@ -69,6 +72,7 @@
         <button type="button" id="btnStopCam" disabled>Cerrar</button>
       </div>
     </div>
+
     <div class="cameraWrap" id="cameraWrap" style="display:none;margin-top:10px">
       <video id="video" playsinline></video>
       <div class="scanBox"></div>
@@ -76,9 +80,9 @@
 
     <div class="sep"></div>
     <div class="row">
-      <button id="btnUndo" disabled>Deshacer último</button>
-      <button id="btnAddByEan">Sumar por EAN (teclado)</button>
-      <button id="btnLimpiar">Poner todo a 0</button>
+      <button type="button" id="btnUndo" disabled>Deshacer último</button>
+      <button type="button" id="btnAddByEan">Sumar por EAN (teclado)</button>
+      <button type="button" id="btnLimpiar">Poner todo a 0</button>
     </div>
 
     <div class="sep"></div>
@@ -106,8 +110,8 @@
     <div id="manualBox" class="list" style="margin-top:10px"></div>
 
     <div class="row" style="margin-top:10px">
-      <button class="primary" id="btnGrabarLinea" disabled>Grabar línea y seguir</button>
-      <button id="btnLimpiarManual">Limpiar selección</button>
+      <button type="button" class="primary" id="btnGrabarLinea" disabled>Grabar línea y seguir</button>
+      <button type="button" id="btnLimpiarManual">Limpiar selección</button>
     </div>
   </section>
 
@@ -119,8 +123,8 @@
         <div class="hint small">CSV con “;” (incluye tienda/uso/sesión).</div>
       </div>
       <div class="row">
-        <button class="primary" id="btnExport">Exportar CSV</button>
-        <button id="btnCompartir">Compartir</button>
+        <button type="button" class="primary" id="btnExport" disabled>Exportar CSV</button>
+        <button type="button" id="btnCompartir" disabled>Compartir</button>
       </div>
     </div>
     <div class="sep"></div>
