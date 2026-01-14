@@ -321,7 +321,7 @@ let stream = null;
 let scanning = false;
 let barcodeDetector = null;
 let rafId = null;
-let lastSeen = { value: null, at: 0 };
+let lastSeen = { value:null, at:0, stableCount:0 };
 
 async function initBarcodeDetector(){
   if ('BarcodeDetector' in window) {
@@ -387,6 +387,39 @@ function stopCamera(){
 
 async function loopScan(){
   if(!scanning || !barcodeDetector) return;
+
+  try{
+    const codes = await barcodeDetector.detect($('video'));
+    if (codes && codes.length){
+      const raw = String(codes[0].rawValue || '').trim();
+      const now = Date.now();
+      if(!raw){ 
+        rafId = requestAnimationFrame(loopScan); 
+        return; 
+      }
+
+      // estabilidad: mismo código 2 frames seguidos
+      if (lastSeen.value === raw) lastSeen.stableCount++;
+      else {
+        lastSeen.value = raw;
+        lastSeen.stableCount = 1;
+      }
+
+      const COOLDOWN_MS = 1600;
+
+      // cuenta solo cuando está estable y ha pasado el cooldown
+      if (lastSeen.stableCount >= 2 && (now - lastSeen.at) > COOLDOWN_MS){
+        lastSeen.at = now;
+        addOneByEan(raw);
+
+        // evita doble conteo mientras siga el código delante
+        lastSeen.stableCount = 0;
+      }
+    }
+  } catch(e){}
+
+  rafId = requestAnimationFrame(loopScan);
+}
 
   try{
     const codes = await barcodeDetector.detect($('video'));
