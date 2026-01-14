@@ -96,7 +96,7 @@ function nuevaSesion(){
 
 function ensureSesion(){
   if(!state.sesionId){
-    toast('Falta sesión','Pulsa Iniciar sesión');
+    toast('Falta sesión','Pulsa Iniciar sesión o Cargar sesión');
     return false;
   }
   return true;
@@ -105,6 +105,7 @@ function ensureSesion(){
 /* ===================== CONTADOR ===================== */
 function addOneByEan(ean){
   if(!ensureSesion()) return;
+  ean = String(ean||'').trim();
   const it = byEan.get(ean);
   if(!it){ toast('EAN no encontrado', ean); return; }
   const n = (state.counts.get(ean)||0)+1;
@@ -113,13 +114,20 @@ function addOneByEan(ean){
   state.lastEan = ean;
   beep(); vibrate();
   updateStats();
+
+  // si está en manual, refresca numerito
+  const nEl = document.getElementById('u_'+ean);
+  if(nEl) nEl.textContent = String(n);
 }
 
 function undo(){
   const ean = state.undo.pop();
   if(!ean) return;
-  state.counts.set(ean, Math.max(0,(state.counts.get(ean)||0)-1));
+  const next = Math.max(0,(state.counts.get(ean)||0)-1);
+  state.counts.set(ean, next);
   updateStats();
+  const nEl = document.getElementById('u_'+ean);
+  if(nEl) nEl.textContent = String(next);
 }
 
 function updateStats(){
@@ -130,6 +138,10 @@ function updateStats(){
   $('statLineas').textContent=l;
   $('statUnidades').textContent=u;
   $('btnUndo').disabled = state.undo.length===0;
+
+  // último (si existe)
+  const last = state.lastEan ? byEan.get(state.lastEan) : null;
+  if($('statUltimo')) $('statUltimo').textContent = last ? String(last.talla||'—') : '—';
 
   updateActionLocks();
   saveSession();
@@ -145,22 +157,29 @@ function updateActionLocks(){
 
   const canSend = hasTienda && hasSesion && hasUnits;
 
-  // Botones de enviar/exportar
   if ($('btnCompartir')) $('btnCompartir').disabled = !canSend;
   if ($('btnExport')) $('btnExport').disabled = !canSend;
 
-  // Mensaje útil
   const hints = [];
   if (!hasTienda) hints.push('elige tienda');
-  if (!hasSesion) hints.push('inicia sesión');
+  if (!hasSesion) hints.push('inicia/carga sesión');
   if (!hasUnits) hints.push('añade unidades');
 
-  if (!canSend) $('csvPreview').placeholder = `Para compartir: ${hints.join(' + ')}.`;
+  if (!canSend) {
+    $('csvPreview').placeholder = `Para compartir: ${hints.join(' + ')}.`;
+  } else {
+    $('csvPreview').placeholder = '';
+  }
 }
 
 /* ===================== BUSQUEDA ===================== */
 function tokenize(q){
-  return q.toLowerCase().replace(/[^\w ]+/g,' ').split(/\s+/).filter(Boolean);
+  return (q||'')
+    .toLowerCase()
+    .replace(/[\u00A0]/g,' ')
+    .replace(/[^\p{L}\p{N} ]+/gu,' ')
+    .split(/\s+/)
+    .filter(Boolean);
 }
 function matchTokens(h,t){ return t.every(x=>h.includes(x)); }
 
@@ -168,6 +187,7 @@ function fillResultados(q){
   const sel=$('resultado'); sel.innerHTML='';
   const tok=tokenize(q||'');
   if(!tok.length) return;
+
   for(const it of itemsForSearch){
     const hay=`${it.descripcion} ${it.codigo} ${it.familia}`.toLowerCase();
     if(matchTokens(hay,tok)){
@@ -183,6 +203,7 @@ function renderManualItem(key){
   const box=$('manualBox'); box.innerHTML='';
   if(!byItemKey.has(key)) return;
   $('btnGrabarLinea').disabled=false;
+
   for(const v of byItemKey.get(key)){
     const n=state.counts.get(v.ean)||0;
     const d=document.createElement('div');
@@ -190,9 +211,9 @@ function renderManualItem(key){
     d.innerHTML=`
       <div>Talla ${v.talla}</div>
       <div class="qty">
-        <button data-ean="${v.ean}" data-a="-">-</button>
+        <button type="button" data-ean="${v.ean}" data-a="-">-</button>
         <span id="u_${v.ean}">${n}</span>
-        <button data-ean="${v.ean}" data-a="+">+</button>
+        <button type="button" data-ean="${v.ean}" data-a="+">+</button>
       </div>`;
     box.appendChild(d);
   }
@@ -204,9 +225,10 @@ function manualClick(e){
   if(!ensureSesion()) return;
   const ean=b.dataset.ean;
   const n=(state.counts.get(ean)||0)+(b.dataset.a==='+'?1:-1);
-  state.counts.set(ean,Math.max(0,n));
-  if(b.dataset.a==='+'){ state.undo.push(ean); beep(); vibrate(); }
-  $('u_'+ean).textContent=state.counts.get(ean);
+  const next = Math.max(0,n);
+  state.counts.set(ean,next);
+  if(b.dataset.a==='+'){ state.undo.push(ean); state.lastEan = ean; beep(); vibrate(); }
+  $('u_'+ean).textContent=next;
   updateStats();
 }
 
@@ -217,6 +239,7 @@ function buildCSV(){
   for(const [ean,u] of state.counts){
     if(u<=0) continue;
     const it=byEan.get(ean);
+    if(!it) continue;
     rows.push([f,state.sesionId,state.tienda,state.uso,it.descripcion,it.talla,u,ean].join(';'));
   }
   return rows.join('\n');
@@ -268,7 +291,6 @@ function rebuildResumen(){
     totalAlbaran += units;
   }
 
-  // Orden por descripción
   const descs = Array.from(agg.keys()).sort((a,b)=>
     a.localeCompare(b, 'es', { sensitivity:'base' })
   );
@@ -294,7 +316,7 @@ function rebuildResumen(){
   $('csvPreview').value = lines.join('\n');
 }
 
-// ===== Cámara (BarcodeDetector) =====
+/* ===================== CAMARA (BarcodeDetector) ===================== */
 let stream = null;
 let scanning = false;
 let barcodeDetector = null;
@@ -313,11 +335,11 @@ async function initBarcodeDetector(){
   barcodeDetector = null;
   return false;
 }
+
 async function startCamera(){
-  // 1) exige sesión (si quieres que abra aunque no haya sesión, quita este if)
   if(!ensureSesion()) return;
 
-  // 2) abre cámara SIEMPRE
+  // abre cámara SIEMPRE
   try{
     stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode:'environment', width:{ideal:1280}, height:{ideal:720} },
@@ -336,7 +358,6 @@ async function startCamera(){
     return;
   }
 
-  // 3) intenta activar el detector (si no hay, al menos ya ves la cámara)
   const ok = await initBarcodeDetector();
   if(!ok){
     toast('Cámara abierta', 'Este móvil/navegador no soporta escaneo automático');
@@ -362,8 +383,6 @@ function stopCamera(){
   if ($('cameraWrap')) $('cameraWrap').style.display = 'none';
   if ($('btnStartCam')) $('btnStartCam').disabled = false;
   if ($('btnStopCam')) $('btnStopCam').disabled = true;
-
-  toast('Cámara cerrada');
 }
 
 async function loopScan(){
@@ -383,13 +402,15 @@ async function loopScan(){
 
   rafId = requestAnimationFrame(loopScan);
 }
+
+/* ===================== PERSISTENCIA ===================== */
 function saveSession(){
   const payload = {
     v: 1,
     sesionId: state.sesionId,
     tienda: state.tienda,
     uso: state.uso,
-    counts: Array.from(state.counts.entries()), // [ [ean, unidades], ... ]
+    counts: Array.from(state.counts.entries()),
     undo: state.undo,
     lastEan: state.lastEan,
     savedAt: new Date().toISOString()
@@ -397,9 +418,12 @@ function saveSession(){
   localStorage.setItem('balance_stock_session', JSON.stringify(payload));
 }
 
-function loadSession(){
+function loadSession(showToast=true){
   const raw = localStorage.getItem('balance_stock_session');
-  if(!raw) { toast('No hay sesión guardada'); return; }
+  if(!raw){
+    if(showToast) toast('No hay sesión guardada');
+    return false;
+  }
   const p = JSON.parse(raw);
 
   state.sesionId = p.sesionId || null;
@@ -409,18 +433,21 @@ function loadSession(){
   state.undo = p.undo || [];
   state.lastEan = p.lastEan || null;
 
-  // refrescar UI
   if ($('sesionHint')) $('sesionHint').textContent = state.sesionId ? `Sesión: ${state.sesionId}` : 'Sin sesión';
   if ($('tienda')) $('tienda').value = state.tienda;
   if ($('uso')) $('uso').value = state.uso;
 
   updateStats();
-  updateActionLocks();
-  toast('Sesión cargada');
+  if(showToast) toast('Sesión cargada');
+  return true;
 }
 
+/* ===================== INIT ===================== */
 window.addEventListener('DOMContentLoaded', async ()=>{
   await loadCatalogo();
+
+  // carga silenciosa si existe
+  loadSession(false);
 
   $('tabScan').onclick = ()=>setTab('tabScan');
   $('tabManual').onclick = ()=>setTab('tabManual');
@@ -430,34 +457,37 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   if ($('btnStopCam')) $('btnStopCam').onclick = stopCamera;
 
   $('btnNuevaSesion').onclick = nuevaSesion;
-  $('btnCargarSesion').onclick = loadSession;
+  $('btnCargarSesion').onclick = ()=>loadSession(true);
 
-  $('tienda').onchange = e => { state.tienda = e.target.value; updateActionLocks(); };
-  $('uso').onchange = e => { state.uso = e.target.value; saveSession(); };
+  // IMPORTANTE: aquí usamos updateStats() para que guarde + locks
+  $('tienda').onchange = e => { state.tienda = e.target.value; updateStats(); };
+  $('uso').onchange = e => { state.uso = e.target.value; updateStats(); };
 
   $('buscar').oninput = e => fillResultados(e.target.value);
   $('resultado').onchange = e => renderManualItem(e.target.value);
   $('manualBox').onclick = manualClick;
 
   $('btnUndo').onclick = undo;
-  $('btnGrabarLinea').onclick = ()=>toast('Línea grabada');
+
+  // sumar por EAN (teclado) – estaba faltando
+  $('btnAddByEan').onclick = ()=>{
+    if(!ensureSesion()) return;
+    const ean = prompt('EAN a sumar (+1):');
+    if(ean) addOneByEan(ean);
+  };
 
   $('btnExport').onclick = compartirCSV;
   $('btnCompartir').onclick = compartirCSV;
 
   $('btnLimpiar').onclick = ()=>{
     if(!confirm('¿Poner todas las unidades a 0?')) return;
+    stopCamera();
     state.counts = new Map();
     state.undo = [];
     state.lastEan = null;
-    updateStats(); // ya guarda y recalcula locks
+    updateStats();
     toast('Todo a 0');
   };
 
-  // intenta cargar sesión automáticamente (opcional pero útil)
-  if (localStorage.getItem('balance_stock_session')) loadSession();
-
   updateStats();
-  updateActionLocks();
 });
-
