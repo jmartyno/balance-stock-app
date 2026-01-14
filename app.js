@@ -344,6 +344,41 @@ async function loopScan(){
 
   rafId = requestAnimationFrame(loopScan);
 }
+function saveSession(){
+  const payload = {
+    v: 1,
+    sesionId: state.sesionId,
+    tienda: state.tienda,
+    uso: state.uso,
+    counts: Array.from(state.counts.entries()), // [ [ean, unidades], ... ]
+    undo: state.undo,
+    lastEan: state.lastEan,
+    savedAt: new Date().toISOString()
+  };
+  localStorage.setItem('balance_stock_session', JSON.stringify(payload));
+}
+
+function loadSession(){
+  const raw = localStorage.getItem('balance_stock_session');
+  if(!raw) { toast('No hay sesión guardada'); return; }
+  const p = JSON.parse(raw);
+
+  state.sesionId = p.sesionId || null;
+  state.tienda = p.tienda || '';
+  state.uso = p.uso || 'NUEVO';
+  state.counts = new Map(p.counts || []);
+  state.undo = p.undo || [];
+  state.lastEan = p.lastEan || null;
+
+  // refrescar UI
+  if ($('sesionHint')) $('sesionHint').textContent = state.sesionId ? `Sesión: ${state.sesionId}` : 'Sin sesión';
+  if ($('tienda')) $('tienda').value = state.tienda;
+  if ($('uso')) $('uso').value = state.uso;
+
+  updateStats();
+  updateActionLocks();
+  toast('Sesión cargada');
+}
 
 window.addEventListener('DOMContentLoaded', async ()=>{
   await loadCatalogo();
