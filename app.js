@@ -108,10 +108,12 @@ function addOneByEan(ean){
   ean = String(ean||'').trim();
   const it = byEan.get(ean);
   if(!it){ toast('EAN no encontrado', ean); return; }
+
   const n = (state.counts.get(ean)||0)+1;
   state.counts.set(ean,n);
   state.undo.push(ean);
   state.lastEan = ean;
+
   beep(); vibrate();
   updateStats();
 
@@ -223,11 +225,14 @@ function manualClick(e){
   const b=e.target.closest('button[data-ean]');
   if(!b) return;
   if(!ensureSesion()) return;
+
   const ean=b.dataset.ean;
   const n=(state.counts.get(ean)||0)+(b.dataset.a==='+'?1:-1);
   const next = Math.max(0,n);
+
   state.counts.set(ean,next);
   if(b.dataset.a==='+'){ state.undo.push(ean); state.lastEan = ean; beep(); vibrate(); }
+
   $('u_'+ean).textContent=next;
   updateStats();
 }
@@ -321,6 +326,8 @@ let stream = null;
 let scanning = false;
 let barcodeDetector = null;
 let rafId = null;
+
+// anti-doble lectura
 let lastSeen = { value:null, at:0, stableCount:0 };
 
 async function initBarcodeDetector(){
@@ -393,9 +400,9 @@ async function loopScan(){
     if (codes && codes.length){
       const raw = String(codes[0].rawValue || '').trim();
       const now = Date.now();
-      if(!raw){ 
-        rafId = requestAnimationFrame(loopScan); 
-        return; 
+      if(!raw){
+        rafId = requestAnimationFrame(loopScan);
+        return;
       }
 
       // estabilidad: mismo código 2 frames seguidos
@@ -414,21 +421,6 @@ async function loopScan(){
 
         // evita doble conteo mientras siga el código delante
         lastSeen.stableCount = 0;
-      }
-    }
-  } catch(e){}
-
-  rafId = requestAnimationFrame(loopScan);
-}
-
-  try{
-    const codes = await barcodeDetector.detect($('video'));
-    if (codes && codes.length){
-      const raw = String(codes[0].rawValue || '').trim();
-      const now = Date.now();
-      if (raw && (lastSeen.value !== raw || (now - lastSeen.at) > 700)){
-        lastSeen = { value: raw, at: now };
-        addOneByEan(raw);
       }
     }
   } catch(e){}
@@ -492,7 +484,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   $('btnNuevaSesion').onclick = nuevaSesion;
   $('btnCargarSesion').onclick = ()=>loadSession(true);
 
-  // IMPORTANTE: aquí usamos updateStats() para que guarde + locks
+  // IMPORTANTE: updateStats() guarda + locks
   $('tienda').onchange = e => { state.tienda = e.target.value; updateStats(); };
   $('uso').onchange = e => { state.uso = e.target.value; updateStats(); };
 
@@ -502,7 +494,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
 
   $('btnUndo').onclick = undo;
 
-  // sumar por EAN (teclado) – estaba faltando
+  // sumar por EAN (teclado)
   $('btnAddByEan').onclick = ()=>{
     if(!ensureSesion()) return;
     const ean = prompt('EAN a sumar (+1):');
