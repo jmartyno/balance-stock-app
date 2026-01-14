@@ -458,5 +458,6 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   if (localStorage.getItem('balance_stock_session')) loadSession();
 
   updateStats();
+  updateActionLocks();
 });
 
