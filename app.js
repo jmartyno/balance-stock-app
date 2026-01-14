@@ -427,8 +427,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
 
   $('btnNuevaSesion').onclick = nuevaSesion;
   $('btnCargarSesion').onclick = loadSession;
+
   $('tienda').onchange = e => { state.tienda = e.target.value; updateActionLocks(); };
-  $('uso').onchange = e => { state.uso = e.target.value; };
+  $('uso').onchange = e => { state.uso = e.target.value; saveSession(); };
 
   $('buscar').oninput = e => fillResultados(e.target.value);
   $('resultado').onchange = e => renderManualItem(e.target.value);
@@ -440,14 +441,18 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   $('btnExport').onclick = compartirCSV;
   $('btnCompartir').onclick = compartirCSV;
 
-  if ($('btnLimpiar')) $('btnLimpiar').onclick = ()=>{
-  if(!confirm('¿Poner todas las unidades a 0?')) return;
-  state.counts = new Map();
-  state.undo = [];
-  state.lastEan = null;
-  updateStats();
-  updateActionLocks();
-  saveSession();
-  toast('Todo a 0');
+  $('btnLimpiar').onclick = ()=>{
+    if(!confirm('¿Poner todas las unidades a 0?')) return;
+    state.counts = new Map();
+    state.undo = [];
+    state.lastEan = null;
+    updateStats(); // ya guarda y recalcula locks
+    toast('Todo a 0');
+  };
 
+  // intenta cargar sesión automáticamente (opcional pero útil)
+  if (localStorage.getItem('balance_stock_session')) loadSession();
+
+  updateStats();
 });
+
