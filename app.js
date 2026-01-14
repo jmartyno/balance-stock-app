@@ -1,14 +1,13 @@
-
 let CATALOGO = [];
 let byEan = new Map();
-let byItemKey = new Map(); // itemKey -> variants (tallas)
-let itemsForSearch = [];   // unique items
+let byItemKey = new Map();
+let itemsForSearch = [];
 
 const state = {
   sesionId: null,
   tienda: "",
   uso: "NUEVO",
-  counts: new Map(),   // ean -> units
+  counts: new Map(),
   undo: [],
   lastEan: null,
   currentItemKey: null
@@ -16,6 +15,7 @@ const state = {
 
 function $(id){ return document.getElementById(id); }
 
+/* ===================== UTIL ===================== */
 function toast(t, s=""){
   $('toastT').textContent = t;
   $('toastS').textContent = s;
@@ -37,14 +37,15 @@ function beep(){
     setTimeout(()=>{o.stop(); ctx.close();}, 80);
   }catch(e){}
 }
-function vibrate(){ try{ if(navigator.vibrate) navigator.vibrate(30); }catch(e){} }
+function vibrate(){ if(navigator.vibrate) navigator.vibrate(30); }
 
 function nowId(){
   const d = new Date();
-  const pad = (n)=>String(n).padStart(2,'0');
-  return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  const p = n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
+/* ===================== TABS ===================== */
 function setTab(tabId){
   const tabs = [['tabScan','panelScan'],['tabManual','panelManual'],['tabResumen','panelResumen']];
   for(const [t,p] of tabs){
@@ -55,6 +56,7 @@ function setTab(tabId){
   if(tabId==='tabResumen') rebuildResumen();
 }
 
+/* ===================== CATALOGO ===================== */
 async function loadCatalogo(){
   const res = await fetch('catalogo.csv', {cache:'no-store'});
   const text = await res.text();
@@ -64,442 +66,194 @@ async function loadCatalogo(){
   for(let i=1;i<lines.length;i++){
     const p = lines[i].split(';');
     const r = {};
-    headers.forEach((h,j)=> r[h]= (p[j]||'').trim());
+    headers.forEach((h,j)=> r[h]=(p[j]||'').trim());
     CATALOGO.push(r);
     if(r.ean) byEan.set(r.ean, r);
-    const itemKey = `${r.codigo}|${r.descripcion}|${r.familia}`;
-    if(!byItemKey.has(itemKey)) byItemKey.set(itemKey, []);
-    byItemKey.get(itemKey).push(r);
+    const key = `${r.codigo}|${r.descripcion}|${r.familia}`;
+    if(!byItemKey.has(key)) byItemKey.set(key, []);
+    byItemKey.get(key).push(r);
   }
 
-  // unique items for search
   itemsForSearch = Array.from(byItemKey.entries()).map(([key, arr])=>{
-    arr.sort((a,b)=>String(a.talla).localeCompare(String(b.talla), 'es', {numeric:true}));
-    const first = arr[0];
-    return { key, codigo:first.codigo, familia:first.familia, descripcion:first.descripcion };
-  }).sort((a,b)=>a.descripcion.localeCompare(b.descripcion,'es',{sensitivity:'base'}));
+    const f = arr[0];
+    return { key, codigo:f.codigo, familia:f.familia, descripcion:f.descripcion };
+  });
 
-  $('buildPill').textContent = `Catálogo: ${CATALOGO.length.toLocaleString('es-ES')} filas`;
+  $('buildPill').textContent = `Catálogo: ${CATALOGO.length} filas`;
   fillResultados('');
 }
 
+/* ===================== SESION ===================== */
 function nuevaSesion(){
   state.sesionId = nowId();
   state.counts = new Map();
   state.undo = [];
   state.lastEan = null;
-  state.currentItemKey = null;
   $('sesionHint').textContent = `Sesión: ${state.sesionId}`;
   updateStats();
-  toast('Sesión iniciada', state.sesionId);
+  toast('Sesión iniciada');
 }
 
 function ensureSesion(){
   if(!state.sesionId){
-    toast('Falta sesión', 'Pulsa “Iniciar sesión”');
+    toast('Falta sesión','Pulsa Iniciar sesión');
     return false;
   }
   return true;
 }
 
+/* ===================== CONTADOR ===================== */
 function addOneByEan(ean){
-  if(!ensureSesion()) return false;
-  ean = String(ean||'').trim();
+  if(!ensureSesion()) return;
   const it = byEan.get(ean);
-  if(!it){ toast('EAN no encontrado', ean); return false; }
-  const prev = Number(state.counts.get(ean)||0);
-  const next = prev + 1;
-  state.counts.set(ean, next);
+  if(!it){ toast('EAN no encontrado', ean); return; }
+  const n = (state.counts.get(ean)||0)+1;
+  state.counts.set(ean,n);
   state.undo.push(ean);
   state.lastEan = ean;
   beep(); vibrate();
-  toast('+1', `${it.descripcion} · Talla ${it.talla} (Total: ${next})`);
   updateStats();
-  // if manual view is on same item, update its number
-  const nEl = document.getElementById('u_'+ean);
-  if(nEl) nEl.textContent = String(next);
-  return true;
 }
 
 function undo(){
   const ean = state.undo.pop();
   if(!ean) return;
-  const prev = Number(state.counts.get(ean)||0);
-  const next = Math.max(0, prev-1);
-  state.counts.set(ean, next);
-  toast('Deshecho', `Talla → ${next}`);
+  state.counts.set(ean, Math.max(0,(state.counts.get(ean)||0)-1));
   updateStats();
-  const nEl = document.getElementById('u_'+ean);
-  if(nEl) nEl.textContent = String(next);
 }
 
 function updateStats(){
-  let lineas=0, unidades=0;
-  for(const [ean,u] of state.counts.entries()){
-    const n = Number(u)||0;
-    if(n>0) lineas++;
-    unidades += n;
+  let l=0,u=0;
+  for(const v of state.counts.values()){
+    if(v>0){ l++; u+=v; }
   }
-  $('statLineas').textContent = String(lineas);
-  $('statUnidades').textContent = String(unidades);
-  const last = state.lastEan ? byEan.get(state.lastEan) : null;
-  $('statUltimo').textContent = last ? (`${last.talla}`) : '—';
+  $('statLineas').textContent=l;
+  $('statUnidades').textContent=u;
   $('btnUndo').disabled = state.undo.length===0;
 }
 
+/* ===================== BUSQUEDA ===================== */
 function tokenize(q){
-  return (q||'')
-    .toLowerCase()
-    .replace(/[\u00A0]/g,' ')
-    .replace(/[^\p{L}\p{N} ]+/gu,' ')
-    .split(/\s+/)
-    .filter(Boolean);
+  return q.toLowerCase().replace(/[^\w ]+/g,' ').split(/\s+/).filter(Boolean);
 }
+function matchTokens(h,t){ return t.every(x=>h.includes(x)); }
 
-// “ternaria”: AND de tokens, en cualquier orden
-function matchTokens(haystack, tokens){
-  for(const t of tokens){
-    if(!haystack.includes(t)) return false;
-  }
-  return true;
-}
-
-function fillResultados(query){
-  const sel = $('resultado');
-  sel.innerHTML = '';
-  const tokens = tokenize(query);
-  if(tokens.length===0){
-    const opt = document.createElement('option');
-    opt.value = '';
-    opt.textContent = 'Escribe para buscar…';
-    sel.appendChild(opt);
-    return;
-  }
-  const hits = [];
+function fillResultados(q){
+  const sel=$('resultado'); sel.innerHTML='';
+  const tok=tokenize(q||'');
+  if(!tok.length) return;
   for(const it of itemsForSearch){
-    const hay = `${it.descripcion} ${it.codigo} ${it.familia}`.toLowerCase();
-    if(matchTokens(hay, tokens)) hits.push(it);
-    if(hits.length>=200) break;
-  }
-  if(hits.length===0){
-    const opt = document.createElement('option');
-    opt.value = '';
-    opt.textContent = 'Sin resultados';
-    sel.appendChild(opt);
-    return;
-  }
-  for(const it of hits){
-    const opt = document.createElement('option');
-    opt.value = it.key;
-    opt.textContent = `${it.descripcion} · ${it.familia} · ${it.codigo}`;
-    sel.appendChild(opt);
+    const hay=`${it.descripcion} ${it.codigo} ${it.familia}`.toLowerCase();
+    if(matchTokens(hay,tok)){
+      const o=document.createElement('option');
+      o.value=it.key;
+      o.textContent=`${it.descripcion} · ${it.codigo}`;
+      sel.appendChild(o);
+    }
   }
 }
 
-function renderManualItem(itemKey){
-  const header = $('manualHeader');
-  const box = $('manualBox');
-  box.innerHTML = '';
-  state.currentItemKey = itemKey || null;
-  $('btnGrabarLinea').disabled = !itemKey;
-
-  if(!itemKey || !byItemKey.has(itemKey)){
-    header.textContent = 'Selecciona un artículo para ver sus tallas.';
-    return;
-  }
-  const variants = byItemKey.get(itemKey).slice().sort((a,b)=>String(a.talla).localeCompare(String(b.talla), 'es', {numeric:true}));
-  const first = variants[0];
-  header.innerHTML = `<b>${first.descripcion}</b><br><span class="hint small">${first.familia} · Código ${first.codigo}</span>`;
-
-  for(const v of variants){
-    const ean = v.ean;
-    const units = Number(state.counts.get(ean)||0);
-    const el = document.createElement('div');
-    el.className = 'item';
-    el.innerHTML = `
-      <div class="meta">
-        <div class="top">Talla ${v.talla}</div>
-        <div class="bot">${units>0 ? 'Con unidades' : '—'}</div>
-      </div>
+function renderManualItem(key){
+  const box=$('manualBox'); box.innerHTML='';
+  if(!byItemKey.has(key)) return;
+  $('btnGrabarLinea').disabled=false;
+  for(const v of byItemKey.get(key)){
+    const n=state.counts.get(v.ean)||0;
+    const d=document.createElement('div');
+    d.className='item';
+    d.innerHTML=`
+      <div>Talla ${v.talla}</div>
       <div class="qty">
-        <button data-act="minus" data-ean="${ean}">-</button>
-        <div class="n" id="u_${ean}">${units}</div>
-        <button data-act="plus" data-ean="${ean}">+</button>
-      </div>
-    `;
-    box.appendChild(el);
+        <button data-ean="${v.ean}" data-a="-">-</button>
+        <span id="u_${v.ean}">${n}</span>
+        <button data-ean="${v.ean}" data-a="+">+</button>
+      </div>`;
+    box.appendChild(d);
   }
 }
 
-function manualClick(ev){
-  const btn = ev.target.closest('button[data-act]');
-  if(!btn) return;
+function manualClick(e){
+  const b=e.target.closest('button[data-ean]');
+  if(!b) return;
   if(!ensureSesion()) return;
-  const ean = btn.dataset.ean;
-  const act = btn.dataset.act;
-  const prev = Number(state.counts.get(ean)||0);
-  const next = act==='plus' ? prev+1 : Math.max(0, prev-1);
-  state.counts.set(ean, next);
-  if(act==='plus'){ state.undo.push(ean); state.lastEan = ean; beep(); vibrate(); }
-  const nEl = document.getElementById('u_'+ean);
-  if(nEl) nEl.textContent = String(next);
+  const ean=b.dataset.ean;
+  const n=(state.counts.get(ean)||0)+(b.dataset.a==='+'?1:-1);
+  state.counts.set(ean,Math.max(0,n));
+  if(b.dataset.a==='+'){ state.undo.push(ean); beep(); vibrate(); }
+  $('u_'+ean).textContent=state.counts.get(ean);
   updateStats();
 }
 
-function limpiarManual(){
-  $('buscar').value = '';
-  $('resultado').innerHTML = '';
-  $('manualBox').innerHTML = '';
-  $('manualHeader').textContent = 'Selecciona un artículo para ver sus tallas.';
-  state.currentItemKey = null;
-  $('btnGrabarLinea').disabled = true;
-  fillResultados('');
-}
-
-function grabarLinea(){
-  // No “crea” nada extra: las unidades ya están acumuladas en state.counts.
-  // Sirve para confirmar y pasar al siguiente artículo sin tocar la selección anterior.
-  toast('Línea grabada', 'Puedes buscar el siguiente artículo');
-  $('buscar').focus();
-  // opcional: limpiar selección pero mantener texto de búsqueda
-  $('resultado').selectedIndex = -1;
-  $('manualBox').innerHTML = '';
-  $('manualHeader').textContent = 'Busca el siguiente artículo…';
-  state.currentItemKey = null;
-  $('btnGrabarLinea').disabled = true;
-}
-
+/* ===================== CSV ===================== */
 function buildCSV(){
-  const header = ['fecha','sesion','tienda','uso','codigo','familia','descripcion','talla','unidades','ean'];
-  const rows = [header.join(';')];
-  const fecha = new Date().toISOString().slice(0,10);
-
-  const items = [];
-  for(const [ean,u] of state.counts.entries()){
-    const units = Number(u)||0;
-    if(units<=0) continue;
-    const it = byEan.get(ean);
-    if(!it) continue;
-    items.push({...it, unidades: units});
-    async function compartirCSV(){
-  const csv = buildCSV();
-  const fileName = `balance_${state.sesionId || 'sin_sesion'}.csv`;
-
-  // crea un "archivo" para compartir
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-  const file = new File([blob], fileName, { type: 'text/csv;charset=utf-8' });
-
-  // Web Share API (móvil)
-  try {
-    if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
-      await navigator.share({
-        title: fileName,
-        text: `Balance stock · ${state.tienda || ''} · ${state.uso || ''}`,
-        files: [file],
-      });
-      toast('Compartido');
-      return;
-    }
-  } catch (e) {
-    // si el usuario cancela o falla, caemos al fallback
-  }
-
-  // Fallback: descarga normal
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-
-  toast('Descargado', 'Ahora envíalo por WhatsApp/email');
-}
-
-  }
-  items.sort((a,b)=>{
-    const da = (a.descripcion||'').localeCompare(b.descripcion||'', 'es', {sensitivity:'base'});
-    if(da!==0) return da;
-    return String(a.talla).localeCompare(String(b.talla), 'es', {numeric:true});
-  });
-
-  for(const it of items){
-    const line = [
-      fecha,
-      state.sesionId || '',
-      state.tienda || '',
-      state.uso || '',
-      it.codigo || '',
-      it.familia || '',
-      (it.descripcion||'').replace(/\s+/g,' ').trim(),
-      it.talla || '',
-      String(it.unidades),
-      it.ean || ''
-    ].map(x=>String(x).replace(/\n/g,' ').replace(/\r/g,' ').replace(/;/g,','));
-    rows.push(line.join(';'));
+  const rows=[['fecha','sesion','tienda','uso','descripcion','talla','unidades','ean'].join(';')];
+  const f=new Date().toISOString().slice(0,10);
+  for(const [ean,u] of state.counts){
+    if(u<=0) continue;
+    const it=byEan.get(ean);
+    rows.push([f,state.sesionId,state.tienda,state.uso,it.descripcion,it.talla,u,ean].join(';'));
   }
   return rows.join('\n');
 }
-function rebuildResumen(){
-  // Agrupa por descripcion y suma unidades (todas las tallas)
-  const agg = new Map(); // descripcion -> unidades
 
-  for (const [ean, u] of state.counts.entries()){
-    const units = Number(u) || 0;
-    if (units <= 0) continue;
-    const it = byEan.get(ean);
-    if (!it) continue;
+/* ===================== COMPARTIR ===================== */
+async function compartirCSV(){
+  const csv=buildCSV();
+  const name=`balance_${state.sesionId||'sin_sesion'}.csv`;
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
 
-    const desc = (it.descripcion || '').trim();
-    agg.set(desc, (agg.get(desc) || 0) + units);
-  }
-
-  // Orden alfabético por descripción
-  const rows = Array.from(agg.entries()).sort((a,b)=>
-    a[0].localeCompare(b[0], 'es', { sensitivity:'base' })
-  );
-
-  let total = 0;
-  const lines = rows.map(([desc, units])=>{
-    total += units;
-    return `${desc}: ${units}`;
-  });
-
-  lines.push(`TOTAL ALBARAN ${total}`);
-  $('csvPreview').value = lines.join('\n');
-}
-
-async function copiarCSV(){
-  try{
-    await navigator.clipboard.writeText(buildCSV());
-    toast('Copiado');
-  }catch(e){
-    toast('No se pudo copiar');
-  }
-}
-
-// ===== Cámara (BarcodeDetector) =====
-let stream = null;
-let scanning = false;
-let barcodeDetector = null;
-let rafId = null;
-let lastSeen = {value:null, at:0};
-
-async function initBarcodeDetector(){
-  if('BarcodeDetector' in window){
+  if(navigator.share){
     try{
-      barcodeDetector = new BarcodeDetector({formats:['ean_13','ean_8','code_128','code_39','upc_a','upc_e','qr_code']});
-      return true;
+      const file=new File([blob],name,{type:'text/csv'});
+      await navigator.share({files:[file],title:name});
+      toast('Compartido');
+      return;
     }catch(e){}
   }
-  barcodeDetector = null;
-  return false;
+
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  toast('Descargado');
 }
 
-async function startCamera(){
-  if(!ensureSesion()) return;
-  const ok = await initBarcodeDetector();
-  if(!ok){
-    toast('No compatible', 'Prueba Chrome Android o usa teclado');
-    return;
+/* ===================== RESUMEN ===================== */
+function rebuildResumen(){
+  const m=new Map();
+  let t=0;
+  for(const [ean,u] of state.counts){
+    if(u<=0) continue;
+    const d=byEan.get(ean).descripcion;
+    m.set(d,(m.get(d)||0)+u);
+    t+=u;
   }
-  try{
-    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment', width:{ideal:1280}, height:{ideal:720}}, audio:false});
-    $('video').srcObject = stream;
-    await $('video').play();
-    $('cameraWrap').style.display = '';
-    $('btnStartCam').disabled = true;
-    $('btnStopCam').disabled = false;
-    scanning = true;
-    loopScan();
-    toast('Cámara lista');
-  }catch(e){
-    toast('Sin cámara', 'Permite acceso');
-  }
+  const out=[...m.entries()].map(([d,u])=>`${d}: ${u}`);
+  out.push(`TOTAL ALBARAN ${t}`);
+  $('csvPreview').value=out.join('\n');
 }
 
-function stopCamera(){
-  scanning = false;
-  $('btnStartCam').disabled = false;
-  $('btnStopCam').disabled = true;
-  $('cameraWrap').style.display = 'none';
-  if(rafId) cancelAnimationFrame(rafId);
-  rafId = null;
-  if(stream){
-    for(const t of stream.getTracks()) t.stop();
-    stream = null;
-  }
-}
-
-async function loopScan(){
-  if(!scanning || !barcodeDetector) return;
-  try{
-    const codes = await barcodeDetector.detect($('video'));
-    if(codes && codes.length){
-      const raw = (codes[0].rawValue||'').trim();
-      const now = Date.now();
-      if(raw && (lastSeen.value!==raw || (now-lastSeen.at)>700)){
-        lastSeen = {value:raw, at:now};
-        addOneByEan(raw);
-      }
-    }
-  }catch(e){}
-  rafId = requestAnimationFrame(loopScan);
-}
-
-// ===== eventos =====
+/* ===================== INIT ===================== */
 window.addEventListener('DOMContentLoaded', async ()=>{
   await loadCatalogo();
 
-  $('tabScan').onclick = ()=>setTab('tabScan');
-  $('tabManual').onclick = ()=>setTab('tabManual');
-  $('tabResumen').onclick = ()=>setTab('tabResumen');
+  $('tabScan').onclick=()=>setTab('tabScan');
+  $('tabManual').onclick=()=>setTab('tabManual');
+  $('tabResumen').onclick=()=>setTab('tabResumen');
 
-  $('btnNuevaSesion').onclick = nuevaSesion;
+  $('btnNuevaSesion').onclick=nuevaSesion;
+  $('tienda').onchange=e=>state.tienda=e.target.value;
+  $('uso').onchange=e=>state.uso=e.target.value;
 
-  $('tienda').addEventListener('change', e=> state.tienda = e.target.value);
+  $('buscar').oninput=e=>fillResultados(e.target.value);
+  $('resultado').onchange=e=>renderManualItem(e.target.value);
+  $('manualBox').onclick=manualClick;
 
-  $('uso').addEventListener('change', e=> state.uso = e.target.value);
-
-  $('buscar').addEventListener('input', e=> fillResultados(e.target.value));
-  $('resultado').addEventListener('change', e=> renderManualItem(e.target.value));
-  $('manualBox').addEventListener('click', manualClick);
-
-  $('btnLimpiarManual').onclick = limpiarManual;
-  $('btnGrabarLinea').onclick = grabarLinea;
-
-  $('btnAddByEan').onclick = ()=>{
-    const ean = prompt('EAN a sumar (+1):');
-    if(ean) addOneByEan(ean);
-  };
-  $('btnUndo').onclick = undo;
-  $('btnLimpiar').onclick = ()=>{
-    if(!confirm('¿Poner todas las unidades a 0?')) return;
-    state.counts = new Map();
-    state.undo = [];
-    state.lastEan = null;
-    updateStats();
-    toast('Todo a 0');
-  };
-
-  $('btnStartCam').onclick = startCamera;
-  $('btnStopCam').onclick = stopCamera;
-
-  $('btnExport').onclick = ()=>{
-    const csv = buildCSV();
-    const file = `balance_${state.sesionId || 'sin_sesion'}.csv`;
-    const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = file;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(()=>URL.revokeObjectURL(url), 1000);
-    toast('Exportado', file);
-  };
-  $('btnCompartir').onclick = compartirCSV;
-
-  $('btnCopiar').onclick = copiarCSV;
+  $('btnUndo').onclick=undo;
+  $('btnGrabarLinea').onclick=()=>toast('Línea grabada');
+  $('btnExport').onclick=()=>compartirCSV();
+  $('btnCompartir').onclick=compartirCSV;
 
   updateStats();
 });
