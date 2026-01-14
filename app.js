@@ -405,7 +405,14 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   $('btnExport').onclick = compartirCSV;
   $('btnCompartir').onclick = compartirCSV;
 
+  if ($('btnLimpiar')) $('btnLimpiar').onclick = ()=>{
+  if(!confirm('¿Poner todas las unidades a 0?')) return;
+  state.counts = new Map();
+  state.undo = [];
+  state.lastEan = null;
   updateStats();
-  saveSession();
   updateActionLocks();
+  saveSession();
+  toast('Todo a 0');
+
 });
