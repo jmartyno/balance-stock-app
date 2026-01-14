@@ -305,9 +305,33 @@ function buildCSV(){
   }
   return rows.join('\n');
 }
-
 function rebuildResumen(){
-  $('csvPreview').value = buildCSV();
+  // Agrupa por descripcion y suma unidades (todas las tallas)
+  const agg = new Map(); // descripcion -> unidades
+
+  for (const [ean, u] of state.counts.entries()){
+    const units = Number(u) || 0;
+    if (units <= 0) continue;
+    const it = byEan.get(ean);
+    if (!it) continue;
+
+    const desc = (it.descripcion || '').trim();
+    agg.set(desc, (agg.get(desc) || 0) + units);
+  }
+
+  // Orden alfabético por descripción
+  const rows = Array.from(agg.entries()).sort((a,b)=>
+    a[0].localeCompare(b[0], 'es', { sensitivity:'base' })
+  );
+
+  let total = 0;
+  const lines = rows.map(([desc, units])=>{
+    total += units;
+    return `${desc}: ${units}`;
+  });
+
+  lines.push(`TOTAL ALBARAN ${total}`);
+  $('csvPreview').value = lines.join('\n');
 }
 
 async function copiarCSV(){
