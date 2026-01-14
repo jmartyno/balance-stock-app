@@ -265,7 +265,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   $('tabResumen').onclick=()=>setTab('tabResumen');
 
   $('btnNuevaSesion').onclick=nuevaSesion;
-  $('tienda').onchange=e=>state.tienda=e.target.value;
+  $('tienda').onchange = e => { state.tienda = e.target.value; updateActionLocks(); };
   $('uso').onchange=e=>state.uso=e.target.value;
 
   $('buscar').oninput=e=>fillResultados(e.target.value);
@@ -278,4 +278,6 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   $('btnCompartir').onclick=compartirCSV;
 
   updateStats();
+  updateActionLocks();
+
 });
