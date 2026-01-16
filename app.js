@@ -117,7 +117,6 @@ function addOneByEan(ean){
   beep(); vibrate();
   updateStats();
 
-  // si está en manual, refresca numerito
   const nEl = document.getElementById('u_'+ean);
   if(nEl) nEl.textContent = String(n);
 }
@@ -141,7 +140,6 @@ function updateStats(){
   $('statUnidades').textContent=u;
   $('btnUndo').disabled = state.undo.length===0;
 
-  // último (si existe)
   const last = state.lastEan ? byEan.get(state.lastEan) : null;
   if($('statUltimo')) $('statUltimo').textContent = last ? String(last.talla||'—') : '—';
 
@@ -167,11 +165,8 @@ function updateActionLocks(){
   if (!hasSesion) hints.push('inicia/carga sesión');
   if (!hasUnits) hints.push('añade unidades');
 
-  if (!canSend) {
-    $('csvPreview').placeholder = `Para compartir: ${hints.join(' + ')}.`;
-  } else {
-    $('csvPreview').placeholder = '';
-  }
+  if (!canSend) $('csvPreview').placeholder = `Para compartir: ${hints.join(' + ')}.`;
+  else $('csvPreview').placeholder = '';
 }
 
 /* ===================== BUSQUEDA ===================== */
@@ -275,8 +270,7 @@ async function compartirCSV(){
 
 /* ===================== RESUMEN ===================== */
 function rebuildResumen(){
-  // desc -> Map(talla -> unidades)
-  const agg = new Map();
+  const agg = new Map(); // desc -> Map(talla -> unidades)
   let totalAlbaran = 0;
 
   for (const [ean, u] of state.counts.entries()){
@@ -301,7 +295,6 @@ function rebuildResumen(){
   );
 
   const lines = [];
-
   for (const desc of descs){
     const tmap = agg.get(desc);
     const tallas = Array.from(tmap.entries()).sort((a,b)=>
@@ -321,14 +314,18 @@ function rebuildResumen(){
   $('csvPreview').value = lines.join('\n');
 }
 
-/* ===================== CAMARA (BarcodeDetector) ===================== */
+/* ===================== CAMARA (BarcodeDetector) + TORCH ===================== */
 let stream = null;
 let scanning = false;
 let barcodeDetector = null;
 let rafId = null;
 
-// anti-doble lectura
-let lastSeen = { value:null, at:0, stableCount:0 };
+// Linterna (Android)
+let torchOn = false;
+let videoTrack = null;
+
+// Modo TPV: una lectura y se bloquea hasta que el código desaparece
+let lastSeen = { value:null, stableCount:0, locked:false };
 
 async function initBarcodeDetector(){
   if ('BarcodeDetector' in window) {
@@ -343,15 +340,39 @@ async function initBarcodeDetector(){
   return false;
 }
 
+async function toggleTorch(){
+  if(!videoTrack) return;
+  try{
+    const caps = videoTrack.getCapabilities ? videoTrack.getCapabilities() : null;
+    if(!(caps && 'torch' in caps)){
+      toast('Sin linterna', 'Este móvil no la soporta');
+      return;
+    }
+    torchOn = !torchOn;
+    await videoTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
+    if ($('btnTorch')) $('btnTorch').textContent = torchOn ? 'Linterna: ON' : 'Linterna';
+  }catch(e){
+    toast('No se pudo activar', 'No soportado o sin permisos');
+  }
+}
+
 async function startCamera(){
   if(!ensureSesion()) return;
 
-  // abre cámara SIEMPRE
   try{
     stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode:'environment', width:{ideal:1280}, height:{ideal:720} },
       audio: false
     });
+
+    // track para linterna
+    videoTrack = stream.getVideoTracks()[0] || null;
+    torchOn = false;
+    if ($('btnTorch')) {
+      const caps = videoTrack?.getCapabilities ? videoTrack.getCapabilities() : null;
+      $('btnTorch').disabled = !(caps && 'torch' in caps);
+      $('btnTorch').textContent = 'Linterna';
+    }
 
     $('video').srcObject = stream;
     await $('video').play();
@@ -371,6 +392,9 @@ async function startCamera(){
     return;
   }
 
+  // reset TPV lock
+  lastSeen = { value:null, stableCount:0, locked:false };
+
   scanning = true;
   loopScan();
   toast('Cámara lista', 'Escaneando…');
@@ -382,14 +406,21 @@ function stopCamera(){
   if (rafId) cancelAnimationFrame(rafId);
   rafId = null;
 
+  // apaga linterna si estaba encendida
+  torchOn = false;
+  if ($('btnTorch')) { $('btnTorch').disabled = true; $('btnTorch').textContent = 'Linterna'; }
+
   if (stream){
     for (const t of stream.getTracks()) t.stop();
     stream = null;
   }
+  videoTrack = null;
 
   if ($('cameraWrap')) $('cameraWrap').style.display = 'none';
   if ($('btnStartCam')) $('btnStartCam').disabled = false;
   if ($('btnStopCam')) $('btnStopCam').disabled = true;
+
+  lastSeen = { value:null, stableCount:0, locked:false };
 }
 
 async function loopScan(){
@@ -397,32 +428,42 @@ async function loopScan(){
 
   try{
     const codes = await barcodeDetector.detect($('video'));
-    if (codes && codes.length){
-      const raw = String(codes[0].rawValue || '').trim();
-      const now = Date.now();
-      if(!raw){
-        rafId = requestAnimationFrame(loopScan);
-        return;
-      }
 
-      // estabilidad: mismo código 2 frames seguidos
-      if (lastSeen.value === raw) lastSeen.stableCount++;
-      else {
-        lastSeen.value = raw;
-        lastSeen.stableCount = 1;
-      }
-
-      const COOLDOWN_MS = 1600;
-
-      // cuenta solo cuando está estable y ha pasado el cooldown
-      if (lastSeen.stableCount >= 2 && (now - lastSeen.at) > COOLDOWN_MS){
-        lastSeen.at = now;
-        addOneByEan(raw);
-
-        // evita doble conteo mientras siga el código delante
-        lastSeen.stableCount = 0;
-      }
+    // Si no ve nada: desbloquea (para permitir el siguiente escaneo)
+    if(!codes || !codes.length){
+      lastSeen.locked = false;
+      lastSeen.value = null;
+      lastSeen.stableCount = 0;
+      rafId = requestAnimationFrame(loopScan);
+      return;
     }
+
+    const raw = String(codes[0].rawValue || '').trim();
+    if(!raw){
+      rafId = requestAnimationFrame(loopScan);
+      return;
+    }
+
+    // Si está bloqueado y sigue viendo el mismo código, NO suma
+    if(lastSeen.locked && lastSeen.value === raw){
+      rafId = requestAnimationFrame(loopScan);
+      return;
+    }
+
+    // Estabilidad: mismo código 2 frames seguidos
+    if(lastSeen.value === raw) lastSeen.stableCount++;
+    else {
+      lastSeen.value = raw;
+      lastSeen.stableCount = 1;
+      lastSeen.locked = false;
+    }
+
+    // Cuenta UNA vez cuando está estable y bloquea hasta que desaparezca
+    if(!lastSeen.locked && lastSeen.stableCount >= 2){
+      addOneByEan(raw);
+      lastSeen.locked = true;
+    }
+
   } catch(e){}
 
   rafId = requestAnimationFrame(loopScan);
@@ -480,11 +521,11 @@ window.addEventListener('DOMContentLoaded', async ()=>{
 
   if ($('btnStartCam')) $('btnStartCam').onclick = startCamera;
   if ($('btnStopCam')) $('btnStopCam').onclick = stopCamera;
+  if ($('btnTorch')) $('btnTorch').onclick = toggleTorch;
 
   $('btnNuevaSesion').onclick = nuevaSesion;
   $('btnCargarSesion').onclick = ()=>loadSession(true);
 
-  // IMPORTANTE: updateStats() guarda + locks
   $('tienda').onchange = e => { state.tienda = e.target.value; updateStats(); };
   $('uso').onchange = e => { state.uso = e.target.value; updateStats(); };
 
@@ -494,7 +535,6 @@ window.addEventListener('DOMContentLoaded', async ()=>{
 
   $('btnUndo').onclick = undo;
 
-  // sumar por EAN (teclado)
   $('btnAddByEan').onclick = ()=>{
     if(!ensureSesion()) return;
     const ean = prompt('EAN a sumar (+1):');
