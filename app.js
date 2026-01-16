@@ -28,7 +28,9 @@ function toast(t, s=""){
 function beep(times = 1){
   try{
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    let t = ctx.currentTime;
+    try{ ctx.resume && ctx.resume(); }catch(e){}
+
+    let t0 = ctx.currentTime;
 
     for(let i=0;i<times;i++){
       const o = ctx.createOscillator();
@@ -36,29 +38,38 @@ function beep(times = 1){
       o.type = 'sine';
       o.frequency.value = 880;
       g.gain.value = 0.06;
+
       o.connect(g);
       g.connect(ctx.destination);
-      o.start(t);
-      o.stop(t + 0.08);
-      t += 0.12;
+
+      const startAt = t0 + (i * 0.12);
+      o.start(startAt);
+      o.stop(startAt + 0.08);
     }
 
-    setTimeout(()=>ctx.close(), times * 150);
+    setTimeout(()=>{ try{ ctx.close(); }catch(e){} }, times * 220);
   }catch(e){}
 }
 
 function beepError(){
   try{
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    try{ ctx.resume && ctx.resume(); }catch(e){}
+
     const o = ctx.createOscillator();
     const g = ctx.createGain();
     o.type = 'square';
     o.frequency.value = 220; // grave
     g.gain.value = 0.08;
-    o.connect(g); 
+
+    o.connect(g);
     g.connect(ctx.destination);
+
     o.start();
-    setTimeout(()=>{ o.stop(); ctx.close(); }, 180);
+    setTimeout(()=>{
+      try{ o.stop(); }catch(e){}
+      try{ ctx.close(); }catch(e){}
+    }, 220);
   }catch(e){}
 }
 
