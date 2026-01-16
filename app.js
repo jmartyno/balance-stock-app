@@ -351,6 +351,7 @@ async function toggleTorch(){
     torchOn = !torchOn;
     await videoTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
     if ($('btnTorch')) $('btnTorch').textContent = torchOn ? 'Linterna: ON' : 'Linterna';
+    saveSession();
   }catch(e){
     toast('No se pudo activar', 'No soportado o sin permisos');
   }
@@ -400,13 +401,19 @@ async function startCamera(){
   toast('Cámara lista', 'Escaneando…');
 }
 
-function stopCamera(){
+async function stopCamera(){
   scanning = false;
 
   if (rafId) cancelAnimationFrame(rafId);
   rafId = null;
 
-  // apaga linterna si estaba encendida
+  // intentar apagar linterna antes de cortar track
+  try{
+    if (videoTrack && torchOn){
+      await videoTrack.applyConstraints({ advanced: [{ torch: false }] });
+    }
+  }catch(e){}
+
   torchOn = false;
   if ($('btnTorch')) { $('btnTorch').disabled = true; $('btnTorch').textContent = 'Linterna'; }
 
@@ -429,7 +436,7 @@ async function loopScan(){
   try{
     const codes = await barcodeDetector.detect($('video'));
 
-    // Si no ve nada: desbloquea (para permitir el siguiente escaneo)
+    // Si no ve nada: desbloquea
     if(!codes || !codes.length){
       lastSeen.locked = false;
       lastSeen.value = null;
@@ -444,13 +451,22 @@ async function loopScan(){
       return;
     }
 
-    // Si está bloqueado y sigue viendo el mismo código, NO suma
+    // Si está bloqueado pero aparece OTRO código, cambiamos a ese y dejamos que estabilice
+    if(lastSeen.locked && lastSeen.value !== raw){
+      lastSeen.value = raw;
+      lastSeen.stableCount = 1;
+      lastSeen.locked = false;
+      rafId = requestAnimationFrame(loopScan);
+      return;
+    }
+
+    // Si está bloqueado y sigue el mismo, no suma
     if(lastSeen.locked && lastSeen.value === raw){
       rafId = requestAnimationFrame(loopScan);
       return;
     }
 
-    // Estabilidad: mismo código 2 frames seguidos
+    // Estabilidad
     if(lastSeen.value === raw) lastSeen.stableCount++;
     else {
       lastSeen.value = raw;
