@@ -277,13 +277,30 @@ function manualClick(e){
 
 /* ===================== CSV ===================== */
 function buildCSV(){
-  const rows=[['fecha','sesion','tienda','uso','descripcion','talla','unidades','ean'].join(';')];
+  const rows=[[
+    'fecha','sesion','tienda','uso',
+    'concepto',           // <- el 100 (campo CONCEPTO)
+    'descripcion','talla','unidades','ean'
+  ].join(';')];
+
   const f=new Date().toISOString().slice(0,10);
+
   for(const [ean,u] of state.counts){
     if(u<=0) continue;
     const it=byEan.get(ean);
     if(!it) continue;
-    rows.push([f,state.sesionId,state.tienda,state.uso,it.descripcion,it.talla,u,ean].join(';'));
+
+    rows.push([
+      f,
+      state.sesionId,
+      state.tienda,
+      state.uso,
+      (it.CONCEPTO || '').trim(),
+      (it.descripcion || '').trim(),
+      String(it.talla || '').trim(),
+      u,
+      ean
+    ].join(';'));
   }
   return rows.join('\n');
 }
