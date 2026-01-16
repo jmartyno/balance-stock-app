@@ -15,6 +15,21 @@ const state = {
 
 function $(id){ return document.getElementById(id); }
 
+/* ===================== HELPERS CSV ===================== */
+function unq(s){
+  s = String(s ?? '').trim();
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    s = s.slice(1, -1);
+  }
+  return s.trim();
+}
+function pick(obj, keys){
+  for (const k of keys){
+    if (obj[k] != null && String(obj[k]).trim() !== '') return obj[k];
+  }
+  return '';
+}
+
 /* ===================== UTIL ===================== */
 function toast(t, s=""){
   $('toastT').textContent = t;
@@ -97,14 +112,50 @@ async function loadCatalogo(){
   const res = await fetch('catalogo.csv', {cache:'no-store'});
   const text = await res.text();
   const lines = text.trim().split(/\r?\n/);
-  const headers = lines[0].split(';').map(h=>h.trim());
+
+  const headers = lines[0].split(';').map(h=>unq(h));
 
   for(let i=1;i<lines.length;i++){
     const p = lines[i].split(';');
-    const r = {};
-    headers.forEach((h,j)=> r[h]=(p[j]||'').trim());
+
+    // raw con cabeceras limpias (sin comillas)
+    const raw = {};
+    headers.forEach((h,j)=> raw[h] = unq(p[j] || ''));
+
+    // Mapeo robusto a campos internos
+    const r = {
+      concepto: pick(raw, ['CONCEPTO','Concepto','concepto']),
+      descripcion: pick(raw, [
+        'descripcion','Descripción','DESCRIPCION',
+        'Concepto -> Descripción2','Concepto -> Descripción','Concepto -> Descripcion2','Concepto -> Descripcion',
+        'Concepto -> Descripci\u00f3n2','Concepto -> Descripci\u00f3n'
+      ]),
+      familia: pick(raw, [
+        'familia','Familia','FAMILIA',
+        'Concepto -> Grupo','Concepto -> grupo','Grupo','GRUPO'
+      ]),
+      talla: pick(raw, ['talla','Talla','TALLA']),
+      ean: pick(raw, [
+        'ean','EAN','Ean',
+        'Código de barras','Codigo de barras','C\u00f3digo de barras',
+        'C\u00f3digo de barras (EAN)'
+      ]),
+      // si en tu catálogo existe "codigo" úsalo; si no, que al menos no rompa el key
+      codigo: pick(raw, ['codigo','Código','CODIGO','Codigo'])
+    };
+
+    // Fallbacks útiles
+    if(!r.descripcion) r.descripcion = pick(raw, ['Concepto -> Descripción2','Concepto -> Descripción','Descripcion','DESCRIPCION']);
+    if(!r.codigo) r.codigo = r.concepto || '';
+
+    // guarda raw por si más adelante necesitas otros campos
+    Object.assign(r, raw);
+
     CATALOGO.push(r);
-    if(r.ean) byEan.set(r.ean, r);
+
+    const eanKey = String(r.ean || '').trim();
+    if(eanKey) byEan.set(eanKey, r);
+
     const key = `${r.codigo}|${r.descripcion}|${r.familia}`;
     if(!byItemKey.has(key)) byItemKey.set(key, []);
     byItemKey.get(key).push(r);
@@ -245,15 +296,16 @@ function renderManualItem(key){
   $('btnGrabarLinea').disabled=false;
 
   for(const v of byItemKey.get(key)){
-    const n=state.counts.get(v.ean)||0;
+    const eanKey = String(v.ean||'').trim();
+    const n = state.counts.get(eanKey)||0;
     const d=document.createElement('div');
     d.className='item';
     d.innerHTML=`
       <div>Talla ${v.talla}</div>
       <div class="qty">
-        <button type="button" data-ean="${v.ean}" data-a="-">-</button>
-        <span id="u_${v.ean}">${n}</span>
-        <button type="button" data-ean="${v.ean}" data-a="+">+</button>
+        <button type="button" data-ean="${eanKey}" data-a="-">-</button>
+        <span id="u_${eanKey}">${n}</span>
+        <button type="button" data-ean="${eanKey}" data-a="+">+</button>
       </div>`;
     box.appendChild(d);
   }
@@ -264,7 +316,7 @@ function manualClick(e){
   if(!b) return;
   if(!ensureSesion()) return;
 
-  const ean=b.dataset.ean;
+  const ean=String(b.dataset.ean||'').trim();
   const n=(state.counts.get(ean)||0)+(b.dataset.a==='+'?1:-1);
   const next = Math.max(0,n);
 
@@ -279,7 +331,7 @@ function manualClick(e){
 function buildCSV(){
   const rows=[[
     'fecha','sesion','tienda','uso',
-    'concepto',           // <- el 100 (campo CONCEPTO)
+    'concepto',
     'descripcion','talla','unidades','ean'
   ].join(';')];
 
@@ -287,7 +339,7 @@ function buildCSV(){
 
   for(const [ean,u] of state.counts){
     if(u<=0) continue;
-    const it=byEan.get(ean);
+    const it=byEan.get(String(ean).trim());
     if(!it) continue;
 
     rows.push([
@@ -295,11 +347,11 @@ function buildCSV(){
       state.sesionId,
       state.tienda,
       state.uso,
-      (it.CONCEPTO || '').trim(),
-      (it.descripcion || '').trim(),
-      String(it.talla || '').trim(),
+      unq(it.concepto || it.Concepto || it.CONCEPTO || ''),
+      unq(it.descripcion || ''),
+      unq(it.talla || ''),
       u,
-      ean
+      String(ean).trim()
     ].join(';'));
   }
   return rows.join('\n');
@@ -337,7 +389,7 @@ function rebuildResumen(){
     const units = Number(u) || 0;
     if (units <= 0) continue;
 
-    const it = byEan.get(ean);
+    const it = byEan.get(String(ean).trim());
     if (!it) continue;
 
     const desc = (it.descripcion || '').trim();
@@ -412,7 +464,7 @@ async function applyBestEffortConstraints(track){
 
     if (caps && 'zoom' in caps){
       const maxZ = Number(caps.zoom?.max || 1);
-      const z = Math.min(maxZ, 1.5); // pequeño zoom ayuda a códigos pequeños
+      const z = Math.min(maxZ, 1.5);
       if (z > 1) adv.push({ zoom: z });
     }
 
@@ -446,11 +498,9 @@ async function startCamera(){
       audio: false
     });
 
-    // track para linterna + mejoras
     videoTrack = stream.getVideoTracks()[0] || null;
     torchOn = false;
 
-    // 👇 mejoras “best-effort” (no rompe otros móviles)
     await applyBestEffortConstraints(videoTrack);
 
     if ($('btnTorch')) {
@@ -490,7 +540,6 @@ async function stopCamera(){
   if (rafId) cancelAnimationFrame(rafId);
   rafId = null;
 
-  // intentar apagar linterna antes de cortar track
   try{
     if (videoTrack && torchOn){
       await videoTrack.applyConstraints({ advanced: [{ torch: false }] });
@@ -519,7 +568,6 @@ async function loopScan(){
   try{
     const codes = await barcodeDetector.detect($('video'));
 
-    // Si no ve nada: desbloquea
     if(!codes || !codes.length){
       lastSeen.locked = false;
       lastSeen.value = null;
@@ -534,7 +582,6 @@ async function loopScan(){
       return;
     }
 
-    // Si está bloqueado pero aparece OTRO código, cambiamos a ese y dejamos que estabilice
     if(lastSeen.locked && lastSeen.value !== raw){
       lastSeen.value = raw;
       lastSeen.stableCount = 1;
@@ -543,13 +590,11 @@ async function loopScan(){
       return;
     }
 
-    // Si está bloqueado y sigue el mismo, no suma
     if(lastSeen.locked && lastSeen.value === raw){
       rafId = requestAnimationFrame(loopScan);
       return;
     }
 
-    // Estabilidad
     if(lastSeen.value === raw) lastSeen.stableCount++;
     else {
       lastSeen.value = raw;
@@ -557,7 +602,6 @@ async function loopScan(){
       lastSeen.locked = false;
     }
 
-    // Cuenta UNA vez cuando está estable y bloquea hasta que desaparezca
     if(!lastSeen.locked && lastSeen.stableCount >= 2){
       addOneByEan(raw);
       lastSeen.locked = true;
@@ -611,7 +655,6 @@ function loadSession(showToast=true){
 window.addEventListener('DOMContentLoaded', async ()=>{
   await loadCatalogo();
 
-  // carga silenciosa si existe
   loadSession(false);
 
   $('tabScan').onclick = ()=>setTab('tabScan');
