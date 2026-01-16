@@ -25,18 +25,28 @@ function toast(t, s=""){
   window.__toastTimer = setTimeout(()=>el.classList.remove('show'), 1400);
 }
 
-function beep(){
+function beep(times = 1){
   try{
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type='sine'; o.frequency.value=880;
-    g.gain.value=0.06;
-    o.connect(g); g.connect(ctx.destination);
-    o.start();
-    setTimeout(()=>{o.stop(); ctx.close();}, 80);
+    let t = ctx.currentTime;
+
+    for(let i=0;i<times;i++){
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = 880;
+      g.gain.value = 0.06;
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.start(t);
+      o.stop(t + 0.08);
+      t += 0.12;
+    }
+
+    setTimeout(()=>ctx.close(), times * 150);
   }catch(e){}
 }
+
 function vibrate(){ if(navigator.vibrate) navigator.vibrate(30); }
 
 function nowId(){
