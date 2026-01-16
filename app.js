@@ -132,7 +132,13 @@ function addOneByEan(ean){
   if(!ensureSesion()) return;
   ean = String(ean||'').trim();
   const it = byEan.get(ean);
-  if(!it){ toast('EAN no encontrado', ean); return; }
+  if(!it){
+    beepError();
+    vibrate();
+    toast('EAN no encontrado', ean);
+    return;
+}
+
 
   const n = (state.counts.get(ean)||0)+1;
   state.counts.set(ean,n);
