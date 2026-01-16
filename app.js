@@ -47,6 +47,21 @@ function beep(times = 1){
   }catch(e){}
 }
 
+function beepError(){
+  try{
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'square';
+    o.frequency.value = 220; // grave
+    g.gain.value = 0.08;
+    o.connect(g); 
+    g.connect(ctx.destination);
+    o.start();
+    setTimeout(()=>{ o.stop(); ctx.close(); }, 180);
+  }catch(e){}
+}
+
 function vibrate(){ if(navigator.vibrate) navigator.vibrate(30); }
 
 function nowId(){
