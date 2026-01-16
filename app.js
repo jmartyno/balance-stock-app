@@ -131,21 +131,22 @@ function ensureSesion(){
 function addOneByEan(ean){
   if(!ensureSesion()) return;
   ean = String(ean||'').trim();
+
   const it = byEan.get(ean);
   if(!it){
     beepError();
     vibrate();
     toast('EAN no encontrado', ean);
     return;
-}
-
+  }
 
   const n = (state.counts.get(ean)||0)+1;
   state.counts.set(ean,n);
   state.undo.push(ean);
   state.lastEan = ean;
 
-  beep(); vibrate();
+  beep();
+  vibrate();
   updateStats();
 
   const nEl = document.getElementById('u_'+ean);
