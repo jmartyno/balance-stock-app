@@ -314,7 +314,7 @@ function rebuildResumen(){
   $('csvPreview').value = lines.join('\n');
 }
 
-/* ===================== CAMARA (BarcodeDetector) + TORCH ===================== */
+/* ===================== CAMARA (BarcodeDetector) + TORCH + BEST-EFFORT CONSTRAINTS ===================== */
 let stream = null;
 let scanning = false;
 let barcodeDetector = null;
@@ -338,6 +338,26 @@ async function initBarcodeDetector(){
   }
   barcodeDetector = null;
   return false;
+}
+
+// Mejora calidad lectura (no rompe si no soporta)
+async function applyBestEffortConstraints(track){
+  if(!track) return;
+  try{
+    const caps = track.getCapabilities ? track.getCapabilities() : null;
+    const adv = [];
+
+    if (caps?.focusMode?.includes('continuous')) adv.push({ focusMode: 'continuous' });
+    if (caps?.exposureMode?.includes('continuous')) adv.push({ exposureMode: 'continuous' });
+
+    if (caps && 'zoom' in caps){
+      const maxZ = Number(caps.zoom?.max || 1);
+      const z = Math.min(maxZ, 1.5); // pequeño zoom ayuda a códigos pequeños
+      if (z > 1) adv.push({ zoom: z });
+    }
+
+    if (adv.length) await track.applyConstraints({ advanced: adv });
+  }catch(e){}
 }
 
 async function toggleTorch(){
@@ -366,9 +386,13 @@ async function startCamera(){
       audio: false
     });
 
-    // track para linterna
+    // track para linterna + mejoras
     videoTrack = stream.getVideoTracks()[0] || null;
     torchOn = false;
+
+    // 👇 mejoras “best-effort” (no rompe otros móviles)
+    await applyBestEffortConstraints(videoTrack);
+
     if ($('btnTorch')) {
       const caps = videoTrack?.getCapabilities ? videoTrack.getCapabilities() : null;
       $('btnTorch').disabled = !(caps && 'torch' in caps);
@@ -393,7 +417,6 @@ async function startCamera(){
     return;
   }
 
-  // reset TPV lock
   lastSeen = { value:null, stableCount:0, locked:false };
 
   scanning = true;
