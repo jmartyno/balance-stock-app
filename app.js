@@ -136,32 +136,16 @@ async function loadCatalogo(){
     headersNorm.forEach((hn,j)=> rawN[hn] = unq(p[j] || ''));
 
     // Mapeo a campos internos
- const r = {
-  // el campo real es "codigo"
+const r = {
+  // ✅ aquí va el 100
   concepto: pick(rawN, ['codigo']),
-  codigo:   pick(rawN, ['codigo']),
 
-  descripcion: pick(rawN, [
-    'descripcion',
-    'concepto -> descripción2',
-    'concepto -> descripcion2',
-    'concepto -> descripción',
-    'concepto -> descripcion'
-  ]),
-
-  familia: pick(rawN, [
-    'familia',
-    'concepto -> grupo',
-    'grupo'
-  ]),
-
-  talla: pick(rawN, ['talla']),
-
-  ean: pick(rawN, [
-    'ean',
-    'código de barras',
-    'codigo de barras'
-  ])
+  // campos del catálogo
+  codigo:     pick(rawN, ['codigo']),
+  familia:    pick(rawN, ['familia']),
+  descripcion:pick(rawN, ['descripcion']),
+  talla:      pick(rawN, ['talla']),
+  ean:        pick(rawN, ['ean'])
 };
 
     // Fallbacks útiles
