@@ -51,7 +51,6 @@ function beep(times = 1){
   try{
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     try{ ctx.resume && ctx.resume(); }catch(e){}
-
     let t0 = ctx.currentTime;
 
     for(let i=0;i<times;i++){
@@ -60,7 +59,6 @@ function beep(times = 1){
       o.type = 'sine';
       o.frequency.value = 880;
       g.gain.value = 0.06;
-
       o.connect(g);
       g.connect(ctx.destination);
 
@@ -81,9 +79,8 @@ function beepError(){
     const o = ctx.createOscillator();
     const g = ctx.createGain();
     o.type = 'square';
-    o.frequency.value = 220; // grave
+    o.frequency.value = 220;
     g.gain.value = 0.08;
-
     o.connect(g);
     g.connect(ctx.destination);
 
@@ -131,28 +128,24 @@ async function loadCatalogo(){
   for(let i=1;i<lines.length;i++){
     const p = lines[i].split(';');
 
-    // objeto con claves normalizadas (robusto contra BOM/acentos/espacios invisibles)
+    // objeto con claves normalizadas
     const rawN = {};
     headersNorm.forEach((hn,j)=> rawN[hn] = unq(p[j] || ''));
 
-    // Mapeo a campos internos
-const r = {
-  // ✅ aquí va el 100
-  concepto: pick(rawN, ['codigo']),
+    // ✅ MAPEADO CORRECTO (tu catálogo: codigo;familia;descripcion;talla;ean)
+    const r = {
+      // en tu CSV el “100” está aquí:
+      concepto: pick(rawN, ['codigo']),
 
-  // campos del catálogo
-  codigo:     pick(rawN, ['codigo']),
-  familia:    pick(rawN, ['familia']),
-  descripcion:pick(rawN, ['descripcion']),
-  talla:      pick(rawN, ['talla']),
-  ean:        pick(rawN, ['ean'])
-};
+      // campos estándar
+      codigo: pick(rawN, ['codigo']),
+      familia: pick(rawN, ['familia']),
+      descripcion: pick(rawN, ['descripcion']),
+      talla: pick(rawN, ['talla']),
+      ean: pick(rawN, ['ean'])
+    };
 
-    // Fallbacks útiles
-    if(!r.codigo) r.codigo = r.concepto || '';
-    if(!r.descripcion) r.descripcion = pick(rawN, ['concepto -> descripción2','concepto -> descripcion2','descripcion','descripción']);
-
-    // guarda también el raw normalizado por si luego quieres otros campos
+    // guarda también el raw normalizado (por si luego necesitas otras columnas)
     Object.assign(r, rawN);
 
     CATALOGO.push(r);
@@ -347,8 +340,8 @@ function buildCSV(){
     const it=byEan.get(String(ean).trim());
     if(!it) continue;
 
-    // concepto robusto: busca en varias claves posibles
-    const concepto = unq(pick(it, ['concepto','Concepto','CONCEPTO','id','idarticulo','id_articulo']));
+    // ✅ AHORA SÍ: concepto viene de it.codigo (tu catálogo)
+    const concepto = unq(it.codigo || it.concepto || '');
 
     rows.push([
       f,
@@ -390,7 +383,7 @@ async function compartirCSV(){
 
 /* ===================== RESUMEN ===================== */
 function rebuildResumen(){
-  const agg = new Map(); // desc -> Map(talla -> unidades)
+  const agg = new Map();
   let totalAlbaran = 0;
 
   for (const [ean, u] of state.counts.entries()){
@@ -440,11 +433,9 @@ let scanning = false;
 let barcodeDetector = null;
 let rafId = null;
 
-// Linterna (Android)
 let torchOn = false;
 let videoTrack = null;
 
-// Modo TPV: una lectura y se bloquea hasta que el código desaparece
 let lastSeen = { value:null, stableCount:0, locked:false };
 
 async function initBarcodeDetector(){
@@ -460,7 +451,6 @@ async function initBarcodeDetector(){
   return false;
 }
 
-// Mejora calidad lectura (no rompe si no soporta)
 async function applyBestEffortConstraints(track){
   if(!track) return;
   try{
