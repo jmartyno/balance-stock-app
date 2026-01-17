@@ -29,6 +29,12 @@ function pick(obj, keys){
   }
   return '';
 }
+function normHeader(h){
+  return String(h||'')
+    .replace(/^\uFEFF/, '')   // quita BOM si existe
+    .trim()
+    .toLowerCase();
+}
 
 /* ===================== UTIL ===================== */
 function toast(t, s=""){
@@ -44,7 +50,6 @@ function beep(times = 1){
   try{
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     try{ ctx.resume && ctx.resume(); }catch(e){}
-
     let t0 = ctx.currentTime;
 
     for(let i=0;i<times;i++){
@@ -74,7 +79,7 @@ function beepError(){
     const o = ctx.createOscillator();
     const g = ctx.createGain();
     o.type = 'square';
-    o.frequency.value = 220; // grave
+    o.frequency.value = 220;
     g.gain.value = 0.08;
 
     o.connect(g);
@@ -113,49 +118,44 @@ async function loadCatalogo(){
   const text = await res.text();
   const lines = text.trim().split(/\r?\n/);
 
-  const headers = lines[0].split(';').map(h=>unq(h));
-function normHeader(h){
-  return String(h||'')
-    .replace(/^\uFEFF/, '')     // quita BOM si existe
-    .trim()
-    .toLowerCase();
-}
+  // Cabeceras normalizadas (minúsculas + sin BOM + sin comillas)
+  const headersRaw  = lines[0].split(';').map(h=>unq(h));
+  const headersNorm = headersRaw.map(normHeader);
 
   for(let i=1;i<lines.length;i++){
     const p = lines[i].split(';');
 
-    // raw con cabeceras limpias (sin comillas)
-    const raw = {};
-    headers.forEach((h,j)=> raw[h] = unq(p[j] || ''));
+    // objeto con claves normalizadas
+    const rawN = {};
+    headersNorm.forEach((hn,j)=> rawN[hn] = unq(p[j] || ''));
 
-    // Mapeo robusto a campos internos
+    // mapeo robusto a campos internos
     const r = {
-      concepto: pick(raw, ['CONCEPTO','Concepto','concepto']),
-      descripcion: pick(raw, [
-        'descripcion','Descripción','DESCRIPCION',
-        'Concepto -> Descripción2','Concepto -> Descripción','Concepto -> Descripcion2','Concepto -> Descripcion',
-        'Concepto -> Descripci\u00f3n2','Concepto -> Descripci\u00f3n'
+      concepto: pick(rawN, ['concepto']),
+      descripcion: pick(rawN, [
+        'descripcion','descripción',
+        'descripcion2','descripción2',
+        'concepto -> descripción2','concepto -> descripcion2',
+        'concepto -> descripción','concepto -> descripcion'
       ]),
-      familia: pick(raw, [
-        'familia','Familia','FAMILIA',
-        'Concepto -> Grupo','Concepto -> grupo','Grupo','GRUPO'
+      familia: pick(rawN, [
+        'familia','grupo','concepto -> grupo'
       ]),
-      talla: pick(raw, ['talla','Talla','TALLA']),
-      ean: pick(raw, [
-        'ean','EAN','Ean',
-        'Código de barras','Codigo de barras','C\u00f3digo de barras',
-        'C\u00f3digo de barras (EAN)'
+      talla: pick(rawN, ['talla']),
+      ean: pick(rawN, [
+        'ean',
+        'código de barras','codigo de barras',
+        'código de barras (ean)'
       ]),
-      // si en tu catálogo existe "codigo" úsalo; si no, que al menos no rompa el key
-      codigo: pick(raw, ['codigo','Código','CODIGO','Codigo'])
+      codigo: pick(rawN, ['codigo','código'])
     };
 
-    // Fallbacks útiles
-    if(!r.descripcion) r.descripcion = pick(raw, ['Concepto -> Descripción2','Concepto -> Descripción','Descripcion','DESCRIPCION']);
+    // fallbacks
     if(!r.codigo) r.codigo = r.concepto || '';
+    if(!r.descripcion) r.descripcion = '';
 
-    // guarda raw por si más adelante necesitas otros campos
-    Object.assign(r, raw);
+    // guardamos también rawN por si luego necesitas otros campos
+    Object.assign(r, rawN);
 
     CATALOGO.push(r);
 
@@ -353,7 +353,7 @@ function buildCSV(){
       state.sesionId,
       state.tienda,
       state.uso,
-      unq(it.concepto || it.Concepto || it.CONCEPTO || ''),
+      unq(it.concepto || ''),      // <- SIEMPRE desde it.concepto (ya normalizado)
       unq(it.descripcion || ''),
       unq(it.talla || ''),
       u,
@@ -388,7 +388,7 @@ async function compartirCSV(){
 
 /* ===================== RESUMEN ===================== */
 function rebuildResumen(){
-  const agg = new Map(); // desc -> Map(talla -> unidades)
+  const agg = new Map();
   let totalAlbaran = 0;
 
   for (const [ean, u] of state.counts.entries()){
@@ -438,11 +438,9 @@ let scanning = false;
 let barcodeDetector = null;
 let rafId = null;
 
-// Linterna (Android)
 let torchOn = false;
 let videoTrack = null;
 
-// Modo TPV: una lectura y se bloquea hasta que el código desaparece
 let lastSeen = { value:null, stableCount:0, locked:false };
 
 async function initBarcodeDetector(){
@@ -458,7 +456,6 @@ async function initBarcodeDetector(){
   return false;
 }
 
-// Mejora calidad lectura (no rompe si no soporta)
 async function applyBestEffortConstraints(track){
   if(!track) return;
   try{
