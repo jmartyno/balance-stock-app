@@ -137,31 +137,32 @@ async function loadCatalogo(){
 
     // Mapeo a campos internos
  const r = {
-  // 👇 EL CAMPO REAL ES "codigo"
-  concepto: pick(raw, ['codigo','Codigo','CODIGO']),
+  // el campo real es "codigo"
+  concepto: pick(rawN, ['codigo']),
+  codigo:   pick(rawN, ['codigo']),
 
-  descripcion: pick(raw, [
-    'descripcion','Descripción','DESCRIPCION',
-    'Concepto -> Descripción2','Concepto -> Descripción',
-    'Concepto -> Descripcion2','Concepto -> Descripcion'
+  descripcion: pick(rawN, [
+    'descripcion',
+    'concepto -> descripción2',
+    'concepto -> descripcion2',
+    'concepto -> descripción',
+    'concepto -> descripcion'
   ]),
 
-  familia: pick(raw, [
-    'familia','Familia','FAMILIA',
-    'Concepto -> Grupo','Grupo','GRUPO'
+  familia: pick(rawN, [
+    'familia',
+    'concepto -> grupo',
+    'grupo'
   ]),
 
-  talla: pick(raw, ['talla','Talla','TALLA']),
+  talla: pick(rawN, ['talla']),
 
-  ean: pick(raw, [
-    'ean','EAN',
-    'Código de barras','Codigo de barras'
-  ]),
-
-  // lo seguimos guardando por coherencia
-  codigo: pick(raw, ['codigo','Codigo','CODIGO'])
+  ean: pick(rawN, [
+    'ean',
+    'código de barras',
+    'codigo de barras'
+  ])
 };
-
 
     // Fallbacks útiles
     if(!r.codigo) r.codigo = r.concepto || '';
