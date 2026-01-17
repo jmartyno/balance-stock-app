@@ -114,6 +114,12 @@ async function loadCatalogo(){
   const lines = text.trim().split(/\r?\n/);
 
   const headers = lines[0].split(';').map(h=>unq(h));
+function normHeader(h){
+  return String(h||'')
+    .replace(/^\uFEFF/, '')     // quita BOM si existe
+    .trim()
+    .toLowerCase();
+}
 
   for(let i=1;i<lines.length;i++){
     const p = lines[i].split(';');
