@@ -136,18 +136,32 @@ async function loadCatalogo(){
     headersNorm.forEach((hn,j)=> rawN[hn] = unq(p[j] || ''));
 
     // Mapeo a campos internos
-    const r = {
-      concepto: pick(rawN, ['concepto','id','idarticulo','id_articulo']),
-      descripcion: pick(rawN, [
-        'descripcion','descripción',
-        'concepto -> descripción2','concepto -> descripcion2',
-        'concepto -> descripción','concepto -> descripcion'
-      ]),
-      familia: pick(rawN, ['familia','grupo','concepto -> grupo']),
-      talla: pick(rawN, ['talla']),
-      ean: pick(rawN, ['ean','código de barras','codigo de barras','código de barras (ean)']),
-      codigo: pick(rawN, ['codigo','código'])
-    };
+ const r = {
+  // 👇 EL CAMPO REAL ES "codigo"
+  concepto: pick(raw, ['codigo','Codigo','CODIGO']),
+
+  descripcion: pick(raw, [
+    'descripcion','Descripción','DESCRIPCION',
+    'Concepto -> Descripción2','Concepto -> Descripción',
+    'Concepto -> Descripcion2','Concepto -> Descripcion'
+  ]),
+
+  familia: pick(raw, [
+    'familia','Familia','FAMILIA',
+    'Concepto -> Grupo','Grupo','GRUPO'
+  ]),
+
+  talla: pick(raw, ['talla','Talla','TALLA']),
+
+  ean: pick(raw, [
+    'ean','EAN',
+    'Código de barras','Codigo de barras'
+  ]),
+
+  // lo seguimos guardando por coherencia
+  codigo: pick(raw, ['codigo','Codigo','CODIGO'])
+};
+
 
     // Fallbacks útiles
     if(!r.codigo) r.codigo = r.concepto || '';
