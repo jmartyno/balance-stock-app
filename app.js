@@ -25,13 +25,14 @@ function unq(s){
 }
 function pick(obj, keys){
   for (const k of keys){
-    if (obj[k] != null && String(obj[k]).trim() !== '') return obj[k];
+    if (obj && obj[k] != null && String(obj[k]).trim() !== '') return obj[k];
   }
   return '';
 }
 function normHeader(h){
   return String(h||'')
-    .replace(/^\uFEFF/, '')   // quita BOM si existe
+    .replace(/^\uFEFF/, '')                     // BOM
+    .replace(/[\u00A0\u200B-\u200D\u2060]/g,' ') // NBSP + zero-width
     .trim()
     .toLowerCase();
 }
@@ -50,6 +51,7 @@ function beep(times = 1){
   try{
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     try{ ctx.resume && ctx.resume(); }catch(e){}
+
     let t0 = ctx.currentTime;
 
     for(let i=0;i<times;i++){
@@ -79,7 +81,7 @@ function beepError(){
     const o = ctx.createOscillator();
     const g = ctx.createGain();
     o.type = 'square';
-    o.frequency.value = 220;
+    o.frequency.value = 220; // grave
     g.gain.value = 0.08;
 
     o.connect(g);
@@ -118,43 +120,40 @@ async function loadCatalogo(){
   const text = await res.text();
   const lines = text.trim().split(/\r?\n/);
 
-  // Cabeceras normalizadas (minúsculas + sin BOM + sin comillas)
+  if(!lines.length){
+    $('buildPill').textContent = `Catálogo: 0 filas`;
+    return;
+  }
+
   const headersRaw  = lines[0].split(';').map(h=>unq(h));
   const headersNorm = headersRaw.map(normHeader);
 
   for(let i=1;i<lines.length;i++){
     const p = lines[i].split(';');
 
-    // objeto con claves normalizadas
+    // objeto con claves normalizadas (robusto contra BOM/acentos/espacios invisibles)
     const rawN = {};
     headersNorm.forEach((hn,j)=> rawN[hn] = unq(p[j] || ''));
 
-    // mapeo robusto a campos internos
+    // Mapeo a campos internos
     const r = {
-      concepto: pick(rawN, ['concepto']),
+      concepto: pick(rawN, ['concepto','id','idarticulo','id_articulo']),
       descripcion: pick(rawN, [
         'descripcion','descripción',
-        'descripcion2','descripción2',
         'concepto -> descripción2','concepto -> descripcion2',
         'concepto -> descripción','concepto -> descripcion'
       ]),
-      familia: pick(rawN, [
-        'familia','grupo','concepto -> grupo'
-      ]),
+      familia: pick(rawN, ['familia','grupo','concepto -> grupo']),
       talla: pick(rawN, ['talla']),
-      ean: pick(rawN, [
-        'ean',
-        'código de barras','codigo de barras',
-        'código de barras (ean)'
-      ]),
+      ean: pick(rawN, ['ean','código de barras','codigo de barras','código de barras (ean)']),
       codigo: pick(rawN, ['codigo','código'])
     };
 
-    // fallbacks
+    // Fallbacks útiles
     if(!r.codigo) r.codigo = r.concepto || '';
-    if(!r.descripcion) r.descripcion = '';
+    if(!r.descripcion) r.descripcion = pick(rawN, ['concepto -> descripción2','concepto -> descripcion2','descripcion','descripción']);
 
-    // guardamos también rawN por si luego necesitas otros campos
+    // guarda también el raw normalizado por si luego quieres otros campos
     Object.assign(r, rawN);
 
     CATALOGO.push(r);
@@ -345,15 +344,19 @@ function buildCSV(){
 
   for(const [ean,u] of state.counts){
     if(u<=0) continue;
+
     const it=byEan.get(String(ean).trim());
     if(!it) continue;
+
+    // concepto robusto: busca en varias claves posibles
+    const concepto = unq(pick(it, ['concepto','Concepto','CONCEPTO','id','idarticulo','id_articulo']));
 
     rows.push([
       f,
       state.sesionId,
       state.tienda,
       state.uso,
-      unq(it.concepto || ''),      // <- SIEMPRE desde it.concepto (ya normalizado)
+      concepto,
       unq(it.descripcion || ''),
       unq(it.talla || ''),
       u,
@@ -388,7 +391,7 @@ async function compartirCSV(){
 
 /* ===================== RESUMEN ===================== */
 function rebuildResumen(){
-  const agg = new Map();
+  const agg = new Map(); // desc -> Map(talla -> unidades)
   let totalAlbaran = 0;
 
   for (const [ean, u] of state.counts.entries()){
@@ -438,9 +441,11 @@ let scanning = false;
 let barcodeDetector = null;
 let rafId = null;
 
+// Linterna (Android)
 let torchOn = false;
 let videoTrack = null;
 
+// Modo TPV: una lectura y se bloquea hasta que el código desaparece
 let lastSeen = { value:null, stableCount:0, locked:false };
 
 async function initBarcodeDetector(){
@@ -456,6 +461,7 @@ async function initBarcodeDetector(){
   return false;
 }
 
+// Mejora calidad lectura (no rompe si no soporta)
 async function applyBestEffortConstraints(track){
   if(!track) return;
   try{
