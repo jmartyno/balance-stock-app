@@ -31,7 +31,7 @@ function pick(obj, keys){
 }
 function normHeader(h){
   return String(h||'')
-    .replace(/^\uFEFF/, '')                      // BOM
+    .replace(/^\uFEFF/, '')                     // BOM
     .replace(/[\u00A0\u200B-\u200D\u2060]/g,' ') // NBSP + zero-width
     .trim()
     .toLowerCase();
@@ -113,11 +113,6 @@ function setTab(tabId){
 
 /* ===================== CATALOGO ===================== */
 async function loadCatalogo(){
-  CATALOGO = [];
-  byEan = new Map();
-  byItemKey = new Map();
-  itemsForSearch = [];
-
   const res = await fetch('catalogo.csv', {cache:'no-store'});
   const text = await res.text();
   const lines = text.trim().split(/\r?\n/);
@@ -133,15 +128,14 @@ async function loadCatalogo(){
   for(let i=1;i<lines.length;i++){
     const p = lines[i].split(';');
 
+    // objeto con claves normalizadas
     const rawN = {};
     headersNorm.forEach((hn,j)=> rawN[hn] = unq(p[j] || ''));
 
-    // Tu catálogo: codigo;familia;descripcion;talla;ean
-    const codigo = pick(rawN, ['codigo']); // <-- aquí está el 100
+    // ✅ tu catálogo: codigo;familia;descripcion;talla;ean
     const r = {
-      // “concepto” lo vamos a exportar, y viene de codigo
-      concepto: codigo,
-      codigo: codigo,
+      concepto: pick(rawN, ['codigo']),     // el “100”
+      codigo: pick(rawN, ['codigo']),
       familia: pick(rawN, ['familia']),
       descripcion: pick(rawN, ['descripcion']),
       talla: pick(rawN, ['talla']),
@@ -342,8 +336,8 @@ function buildCSV(){
     const it=byEan.get(String(ean).trim());
     if(!it) continue;
 
-    // ✅ concepto = codigo (tu CSV)
-    const concepto = unq(it.codigo || '');
+    // ✅ concepto = codigo del artículo (el “100”)
+    const concepto = unq(it.codigo || it.concepto || '');
 
     rows.push([
       f,
@@ -429,7 +423,7 @@ function rebuildResumen(){
   $('csvPreview').value = lines.join('\n');
 }
 
-/* ===================== CAMARA (BarcodeDetector) + TORCH + BEST-EFFORT CONSTRAINTS ===================== */
+/* ===================== CAMARA (BarcodeDetector) + TORCH + ANTI-DUPLICADOS FUERTE ===================== */
 let stream = null;
 let scanning = false;
 let barcodeDetector = null;
@@ -438,11 +432,16 @@ let rafId = null;
 let torchOn = false;
 let videoTrack = null;
 
+// estado lectura
 let lastSeen = { value:null, stableCount:0, locked:false };
 
-// ✅ COOLDOWN REAL (evita sensibilidad / duplicados)
+// ✅ anti-duplicado fuerte
 let lastScanAt = 0;
-const SCAN_COOLDOWN_MS = 2000;
+const SCAN_COOLDOWN_MS = 2500;      // retardo mínimo entre lecturas (mismo o distinto)
+const STABLE_FRAMES = 4;            // “estabilidad” necesaria antes de aceptar
+const LOST_FRAMES_TO_UNLOCK = 10;   // necesita X frames sin ver nada para desbloquear
+let lostFrames = 0;
+let lastAcceptedValue = null;
 
 async function initBarcodeDetector(){
   if ('BarcodeDetector' in window) {
@@ -513,15 +512,8 @@ async function startCamera(){
       $('btnTorch').textContent = 'Linterna';
     }
 
-    const v = $('video');
-    if (v){
-      // ✅ iOS helpers (no rompen Android)
-      v.setAttribute('playsinline','');
-      v.muted = true;
-      v.autoplay = true;
-      v.srcObject = stream;
-      await v.play();
-    }
+    $('video').srcObject = stream;
+    await $('video').play();
 
     if ($('cameraWrap')) $('cameraWrap').style.display = '';
     if ($('btnStartCam')) $('btnStartCam').disabled = true;
@@ -534,11 +526,15 @@ async function startCamera(){
 
   const ok = await initBarcodeDetector();
   if(!ok){
-    toast('Cámara abierta', 'Este móvil/navegador no soporta escaneo automático');
+    // iPhone Safari normalmente cae aquí (BarcodeDetector no disponible)
+    toast('iPhone', 'Safari no soporta este escaneo. Usa Chrome iOS o escaneo manual.');
     return;
   }
 
+  // reset lock + anti-dup
   lastSeen = { value:null, stableCount:0, locked:false };
+  lostFrames = 0;
+  lastAcceptedValue = null;
   lastScanAt = 0;
 
   scanning = true;
@@ -572,7 +568,7 @@ async function stopCamera(){
   if ($('btnStopCam')) $('btnStopCam').disabled = true;
 
   lastSeen = { value:null, stableCount:0, locked:false };
-  lastScanAt = 0;
+  lostFrames = 0;
 }
 
 async function loopScan(){
@@ -581,13 +577,18 @@ async function loopScan(){
   try{
     const codes = await barcodeDetector.detect($('video'));
 
+    // ✅ si no ve nada: NO desbloquear al instante, espera LOST_FRAMES_TO_UNLOCK
     if(!codes || !codes.length){
-      lastSeen.locked = false;
-      lastSeen.value = null;
-      lastSeen.stableCount = 0;
+      lostFrames++;
+      if(lostFrames >= LOST_FRAMES_TO_UNLOCK){
+        lastSeen.locked = false;
+        lastSeen.value = null;
+        lastSeen.stableCount = 0;
+      }
       rafId = requestAnimationFrame(loopScan);
       return;
     }
+    lostFrames = 0;
 
     const raw = String(codes[0].rawValue || '').trim();
     if(!raw){
@@ -595,6 +596,7 @@ async function loopScan(){
       return;
     }
 
+    // si está bloqueado y aparece OTRO código, cambia y deja estabilizar
     if(lastSeen.locked && lastSeen.value !== raw){
       lastSeen.value = raw;
       lastSeen.stableCount = 1;
@@ -603,11 +605,13 @@ async function loopScan(){
       return;
     }
 
+    // si sigue bloqueado con el mismo, no suma
     if(lastSeen.locked && lastSeen.value === raw){
       rafId = requestAnimationFrame(loopScan);
       return;
     }
 
+    // estabilidad
     if(lastSeen.value === raw) lastSeen.stableCount++;
     else {
       lastSeen.value = raw;
@@ -615,10 +619,18 @@ async function loopScan(){
       lastSeen.locked = false;
     }
 
-    // ✅ Cuenta UNA vez cuando está estable + cooldown real
     const now = Date.now();
-    if(!lastSeen.locked && lastSeen.stableCount >= 2 && (now - lastScanAt) >= SCAN_COOLDOWN_MS){
+
+    // ✅ si es el mismo EAN del último aceptado y aún no pasó el cooldown → ignora
+    if (raw === lastAcceptedValue && (now - lastScanAt) < SCAN_COOLDOWN_MS){
+      rafId = requestAnimationFrame(loopScan);
+      return;
+    }
+
+    // ✅ acepta UNA vez y bloquea
+    if(!lastSeen.locked && lastSeen.stableCount >= STABLE_FRAMES && (now - lastScanAt) >= SCAN_COOLDOWN_MS){
       lastScanAt = now;
+      lastAcceptedValue = raw;
       addOneByEan(raw);
       lastSeen.locked = true;
     }
@@ -668,20 +680,26 @@ function loadSession(showToast=true){
 }
 
 /* ===================== INIT ===================== */
-window.addEventListener('DOMContentLoaded', async ()=>{
-  await loadCatalogo();
+function ensureCentralOption(){
+  const el = $('tienda');
+  if(!el) return;
 
-  // ✅ añade "Central" a tiendas si existe el select
-  const tiendaEl = $('tienda');
-  if (tiendaEl && tiendaEl.tagName === 'SELECT'){
-    const hasCentral = Array.from(tiendaEl.options).some(o => (o.value||'') === 'Central' || (o.text||'') === 'Central');
-    if(!hasCentral){
+  // si es <select>, añade option Central
+  if (el.tagName === 'SELECT'){
+    const has = Array.from(el.options).some(o => String(o.value).toLowerCase() === 'central' || String(o.text).toLowerCase() === 'central');
+    if(!has){
       const opt = document.createElement('option');
       opt.value = 'Central';
       opt.textContent = 'Central';
-      tiendaEl.appendChild(opt);
+      el.appendChild(opt);
     }
   }
+}
+
+window.addEventListener('DOMContentLoaded', async ()=>{
+  await loadCatalogo();
+
+  ensureCentralOption();
 
   loadSession(false);
 
@@ -696,26 +714,25 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   $('btnNuevaSesion').onclick = nuevaSesion;
   $('btnCargarSesion').onclick = ()=>loadSession(true);
 
-  if (tiendaEl) tiendaEl.onchange = e => { state.tienda = e.target.value; updateStats(); };
-  const usoEl = $('uso');
-  if (usoEl) usoEl.onchange = e => { state.uso = e.target.value; updateStats(); };
+  $('tienda').onchange = e => { state.tienda = e.target.value; updateStats(); };
+  $('uso').onchange = e => { state.uso = e.target.value; updateStats(); };
 
-  if ($('buscar')) $('buscar').oninput = e => fillResultados(e.target.value);
-  if ($('resultado')) $('resultado').onchange = e => renderManualItem(e.target.value);
-  if ($('manualBox')) $('manualBox').onclick = manualClick;
+  $('buscar').oninput = e => fillResultados(e.target.value);
+  $('resultado').onchange = e => renderManualItem(e.target.value);
+  $('manualBox').onclick = manualClick;
 
-  if ($('btnUndo')) $('btnUndo').onclick = undo;
+  $('btnUndo').onclick = undo;
 
-  if ($('btnAddByEan')) $('btnAddByEan').onclick = ()=>{
+  $('btnAddByEan').onclick = ()=>{
     if(!ensureSesion()) return;
     const ean = prompt('EAN a sumar (+1):');
     if(ean) addOneByEan(ean);
   };
 
-  if ($('btnExport')) $('btnExport').onclick = compartirCSV;
-  if ($('btnCompartir')) $('btnCompartir').onclick = compartirCSV;
+  $('btnExport').onclick = compartirCSV;
+  $('btnCompartir').onclick = compartirCSV;
 
-  if ($('btnLimpiar')) $('btnLimpiar').onclick = ()=>{
+  $('btnLimpiar').onclick = ()=>{
     if(!confirm('¿Poner todas las unidades a 0?')) return;
     stopCamera();
     state.counts = new Map();
