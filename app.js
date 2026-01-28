@@ -31,7 +31,7 @@ function pick(obj, keys){
 }
 function normHeader(h){
   return String(h||'')
-    .replace(/^\uFEFF/, '')                     // BOM
+    .replace(/^\uFEFF/, '')                      // BOM
     .replace(/[\u00A0\u200B-\u200D\u2060]/g,' ') // NBSP + zero-width
     .trim()
     .toLowerCase();
@@ -113,6 +113,11 @@ function setTab(tabId){
 
 /* ===================== CATALOGO ===================== */
 async function loadCatalogo(){
+  CATALOGO = [];
+  byEan = new Map();
+  byItemKey = new Map();
+  itemsForSearch = [];
+
   const res = await fetch('catalogo.csv', {cache:'no-store'});
   const text = await res.text();
   const lines = text.trim().split(/\r?\n/);
@@ -128,24 +133,21 @@ async function loadCatalogo(){
   for(let i=1;i<lines.length;i++){
     const p = lines[i].split(';');
 
-    // objeto con claves normalizadas
     const rawN = {};
     headersNorm.forEach((hn,j)=> rawN[hn] = unq(p[j] || ''));
 
-    // ✅ MAPEADO CORRECTO (tu catálogo: codigo;familia;descripcion;talla;ean)
+    // Tu catálogo: codigo;familia;descripcion;talla;ean
+    const codigo = pick(rawN, ['codigo']); // <-- aquí está el 100
     const r = {
-      // en tu CSV el “100” está aquí:
-      concepto: pick(rawN, ['codigo']),
-
-      // campos estándar
-      codigo: pick(rawN, ['codigo']),
+      // “concepto” lo vamos a exportar, y viene de codigo
+      concepto: codigo,
+      codigo: codigo,
       familia: pick(rawN, ['familia']),
       descripcion: pick(rawN, ['descripcion']),
       talla: pick(rawN, ['talla']),
       ean: pick(rawN, ['ean'])
     };
 
-    // guarda también el raw normalizado (por si luego necesitas otras columnas)
     Object.assign(r, rawN);
 
     CATALOGO.push(r);
@@ -340,8 +342,8 @@ function buildCSV(){
     const it=byEan.get(String(ean).trim());
     if(!it) continue;
 
-    // ✅ AHORA SÍ: concepto viene de it.codigo (tu catálogo)
-    const concepto = unq(it.codigo || it.concepto || '');
+    // ✅ concepto = codigo (tu CSV)
+    const concepto = unq(it.codigo || '');
 
     rows.push([
       f,
@@ -438,6 +440,10 @@ let videoTrack = null;
 
 let lastSeen = { value:null, stableCount:0, locked:false };
 
+// ✅ COOLDOWN REAL (evita sensibilidad / duplicados)
+let lastScanAt = 0;
+const SCAN_COOLDOWN_MS = 2000;
+
 async function initBarcodeDetector(){
   if ('BarcodeDetector' in window) {
     try {
@@ -507,8 +513,15 @@ async function startCamera(){
       $('btnTorch').textContent = 'Linterna';
     }
 
-    $('video').srcObject = stream;
-    await $('video').play();
+    const v = $('video');
+    if (v){
+      // ✅ iOS helpers (no rompen Android)
+      v.setAttribute('playsinline','');
+      v.muted = true;
+      v.autoplay = true;
+      v.srcObject = stream;
+      await v.play();
+    }
 
     if ($('cameraWrap')) $('cameraWrap').style.display = '';
     if ($('btnStartCam')) $('btnStartCam').disabled = true;
@@ -526,6 +539,7 @@ async function startCamera(){
   }
 
   lastSeen = { value:null, stableCount:0, locked:false };
+  lastScanAt = 0;
 
   scanning = true;
   loopScan();
@@ -558,6 +572,7 @@ async function stopCamera(){
   if ($('btnStopCam')) $('btnStopCam').disabled = true;
 
   lastSeen = { value:null, stableCount:0, locked:false };
+  lastScanAt = 0;
 }
 
 async function loopScan(){
@@ -600,7 +615,10 @@ async function loopScan(){
       lastSeen.locked = false;
     }
 
-    if(!lastSeen.locked && lastSeen.stableCount >= 2){
+    // ✅ Cuenta UNA vez cuando está estable + cooldown real
+    const now = Date.now();
+    if(!lastSeen.locked && lastSeen.stableCount >= 2 && (now - lastScanAt) >= SCAN_COOLDOWN_MS){
+      lastScanAt = now;
       addOneByEan(raw);
       lastSeen.locked = true;
     }
@@ -653,6 +671,18 @@ function loadSession(showToast=true){
 window.addEventListener('DOMContentLoaded', async ()=>{
   await loadCatalogo();
 
+  // ✅ añade "Central" a tiendas si existe el select
+  const tiendaEl = $('tienda');
+  if (tiendaEl && tiendaEl.tagName === 'SELECT'){
+    const hasCentral = Array.from(tiendaEl.options).some(o => (o.value||'') === 'Central' || (o.text||'') === 'Central');
+    if(!hasCentral){
+      const opt = document.createElement('option');
+      opt.value = 'Central';
+      opt.textContent = 'Central';
+      tiendaEl.appendChild(opt);
+    }
+  }
+
   loadSession(false);
 
   $('tabScan').onclick = ()=>setTab('tabScan');
@@ -666,25 +696,26 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   $('btnNuevaSesion').onclick = nuevaSesion;
   $('btnCargarSesion').onclick = ()=>loadSession(true);
 
-  $('tienda').onchange = e => { state.tienda = e.target.value; updateStats(); };
-  $('uso').onchange = e => { state.uso = e.target.value; updateStats(); };
+  if (tiendaEl) tiendaEl.onchange = e => { state.tienda = e.target.value; updateStats(); };
+  const usoEl = $('uso');
+  if (usoEl) usoEl.onchange = e => { state.uso = e.target.value; updateStats(); };
 
-  $('buscar').oninput = e => fillResultados(e.target.value);
-  $('resultado').onchange = e => renderManualItem(e.target.value);
-  $('manualBox').onclick = manualClick;
+  if ($('buscar')) $('buscar').oninput = e => fillResultados(e.target.value);
+  if ($('resultado')) $('resultado').onchange = e => renderManualItem(e.target.value);
+  if ($('manualBox')) $('manualBox').onclick = manualClick;
 
-  $('btnUndo').onclick = undo;
+  if ($('btnUndo')) $('btnUndo').onclick = undo;
 
-  $('btnAddByEan').onclick = ()=>{
+  if ($('btnAddByEan')) $('btnAddByEan').onclick = ()=>{
     if(!ensureSesion()) return;
     const ean = prompt('EAN a sumar (+1):');
     if(ean) addOneByEan(ean);
   };
 
-  $('btnExport').onclick = compartirCSV;
-  $('btnCompartir').onclick = compartirCSV;
+  if ($('btnExport')) $('btnExport').onclick = compartirCSV;
+  if ($('btnCompartir')) $('btnCompartir').onclick = compartirCSV;
 
-  $('btnLimpiar').onclick = ()=>{
+  if ($('btnLimpiar')) $('btnLimpiar').onclick = ()=>{
     if(!confirm('¿Poner todas las unidades a 0?')) return;
     stopCamera();
     state.counts = new Map();
