@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <title>Balance de Stock</title>
 <link rel="stylesheet" href="style.css"/>
 </head>
@@ -13,6 +13,7 @@
     <div>
       <h1>Balance de stock</h1>
       <div class="hint">Escanea para sumar +1, o usa Manual (buscar → tallas → grabar línea).</div>
+      <div class="hint small">Anti-duplicado: retardo mínimo entre lecturas (recomendado 3s).</div>
     </div>
     <div class="pill" id="buildPill">Cargando catálogo…</div>
   </div>
@@ -57,6 +58,30 @@
 
     <div class="sep"></div>
 
+    <!-- ✅ NUEVO: almacén (por si quieres diferenciar Central / otros) -->
+    <div class="grid3" style="margin-top:8px">
+      <div>
+        <label>Almacén</label>
+        <select id="almacen">
+          <option value="">(opcional)</option>
+          <option value="Central">Central</option>
+        </select>
+        <div class="hint small">Si no lo usas, déjalo vacío.</div>
+      </div>
+
+      <div>
+        <label>Antiduplicado</label>
+        <div class="row">
+          <button type="button" id="btnCooldownInfo">Cooldown 3s</button>
+        </div>
+        <div class="hint small">El retardo real se configura en app.js.</div>
+      </div>
+
+      <div></div>
+    </div>
+
+    <div class="sep"></div>
+
     <div class="tabs">
       <button class="tab active" id="tabScan" type="button">Escanear</button>
       <button class="tab" id="tabManual" type="button">Manual</button>
@@ -67,16 +92,32 @@
   <!-- ESCANEAR -->
   <section class="card" id="panelScan">
     <div class="row" style="justify-content:space-between">
-      <div class="hint">Si el escaneo no va en tu móvil, usa “Sumar por EAN (teclado)”.</div>
+      <div class="hint">
+        Si el escaneo no va en tu móvil, usa “Sumar por EAN (teclado)”.
+        <br/><span class="hint small">iPhone/Safari suele fallar sin librería externa: usa “Modo iPhone” o el teclado.</span>
+      </div>
       <div class="row">
         <button type="button" class="good" id="btnStartCam">Abrir cámara</button>
         <button type="button" id="btnStopCam" disabled>Cerrar</button>
         <button type="button" id="btnTorch" disabled>Linterna</button>
+
+        <!-- ✅ NUEVO: fallback iPhone -->
+        <button type="button" id="btnIphoneShot">Modo iPhone</button>
       </div>
     </div>
 
+    <!-- ✅ NUEVO: input oculto para iPhone/cámara foto -->
+    <input
+      id="iphoneCapture"
+      type="file"
+      accept="image/*"
+      capture="environment"
+      style="display:none"
+    />
+
     <div class="cameraWrap" id="cameraWrap" style="display:none;margin-top:10px">
-      <video id="video" playsinline></video>
+      <!-- ✅ iOS friendly -->
+      <video id="video" playsinline muted autoplay></video>
       <div class="scanBox"></div>
     </div>
 
@@ -141,5 +182,21 @@
 </div>
 
 <script src="app.js"></script>
+
+<!-- ✅ mini wiring para el botón Modo iPhone (no rompe si no lo usas) -->
+<script>
+  (function(){
+    const btn = document.getElementById('btnIphoneShot');
+    const inp = document.getElementById('iphoneCapture');
+    if(btn && inp){
+      btn.addEventListener('click', ()=> inp.click());
+    }
+    const info = document.getElementById('btnCooldownInfo');
+    if(info){
+      info.addEventListener('click', ()=> alert('Antiduplicado recomendado: 3s entre lecturas. Se ajusta en app.js (SCAN_COOLDOWN_MS).'));
+    }
+  })();
+</script>
+
 </body>
 </html>
