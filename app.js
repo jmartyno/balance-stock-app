@@ -1,3 +1,4 @@
+/* ===================== STATE ===================== */
 let CATALOGO = [];
 let byEan = new Map();
 let byItemKey = new Map();
@@ -31,7 +32,7 @@ function pick(obj, keys){
 }
 function normHeader(h){
   return String(h||'')
-    .replace(/^\uFEFF/, '')                     // BOM
+    .replace(/^\uFEFF/, '')                      // BOM
     .replace(/[\u00A0\u200B-\u200D\u2060]/g,' ') // NBSP + zero-width
     .trim()
     .toLowerCase();
@@ -113,12 +114,18 @@ function setTab(tabId){
 
 /* ===================== CATALOGO ===================== */
 async function loadCatalogo(){
+  // ✅ reset total (evita mezclas/duplicados si se llama 2 veces)
+  CATALOGO = [];
+  byEan = new Map();
+  byItemKey = new Map();
+  itemsForSearch = [];
+
   const res = await fetch('catalogo.csv', {cache:'no-store'});
   const text = await res.text();
   const lines = text.trim().split(/\r?\n/);
 
   if(!lines.length){
-    $('buildPill').textContent = `Catálogo: 0 filas`;
+    if($('buildPill')) $('buildPill').textContent = `Catálogo: 0 filas`;
     return;
   }
 
@@ -134,7 +141,7 @@ async function loadCatalogo(){
 
     // ✅ tu catálogo: codigo;familia;descripcion;talla;ean
     const r = {
-      concepto: pick(rawN, ['codigo']),     // el “100”
+      concepto: pick(rawN, ['codigo']), // el “100”
       codigo: pick(rawN, ['codigo']),
       familia: pick(rawN, ['familia']),
       descripcion: pick(rawN, ['descripcion']),
@@ -143,7 +150,6 @@ async function loadCatalogo(){
     };
 
     Object.assign(r, rawN);
-
     CATALOGO.push(r);
 
     const eanKey = String(r.ean || '').trim();
@@ -159,7 +165,7 @@ async function loadCatalogo(){
     return { key, codigo:f.codigo, familia:f.familia, descripcion:f.descripcion };
   });
 
-  $('buildPill').textContent = `Catálogo: ${CATALOGO.length} filas`;
+  if($('buildPill')) $('buildPill').textContent = `Catálogo: ${CATALOGO.length} filas`;
   fillResultados('');
 }
 
@@ -169,7 +175,7 @@ function nuevaSesion(){
   state.counts = new Map();
   state.undo = [];
   state.lastEan = null;
-  $('sesionHint').textContent = `Sesión: ${state.sesionId}`;
+  if($('sesionHint')) $('sesionHint').textContent = `Sesión: ${state.sesionId}`;
   updateStats();
   toast('Sesión iniciada');
 }
@@ -223,9 +229,9 @@ function updateStats(){
   for(const v of state.counts.values()){
     if(v>0){ l++; u+=v; }
   }
-  $('statLineas').textContent=l;
-  $('statUnidades').textContent=u;
-  $('btnUndo').disabled = state.undo.length===0;
+  if($('statLineas')) $('statLineas').textContent=l;
+  if($('statUnidades')) $('statUnidades').textContent=u;
+  if($('btnUndo')) $('btnUndo').disabled = state.undo.length===0;
 
   const last = state.lastEan ? byEan.get(state.lastEan) : null;
   if($('statUltimo')) $('statUltimo').textContent = last ? String(last.talla||'—') : '—';
@@ -252,8 +258,10 @@ function updateActionLocks(){
   if (!hasSesion) hints.push('inicia/carga sesión');
   if (!hasUnits) hints.push('añade unidades');
 
-  if (!canSend) $('csvPreview').placeholder = `Para compartir: ${hints.join(' + ')}.`;
-  else $('csvPreview').placeholder = '';
+  if ($('csvPreview')){
+    if (!canSend) $('csvPreview').placeholder = `Para compartir: ${hints.join(' + ')}.`;
+    else $('csvPreview').placeholder = '';
+  }
 }
 
 /* ===================== BUSQUEDA ===================== */
@@ -268,7 +276,8 @@ function tokenize(q){
 function matchTokens(h,t){ return t.every(x=>h.includes(x)); }
 
 function fillResultados(q){
-  const sel=$('resultado'); sel.innerHTML='';
+  const sel=$('resultado'); if(!sel) return;
+  sel.innerHTML='';
   const tok=tokenize(q||'');
   if(!tok.length) return;
 
@@ -284,9 +293,10 @@ function fillResultados(q){
 }
 
 function renderManualItem(key){
-  const box=$('manualBox'); box.innerHTML='';
+  const box=$('manualBox'); if(!box) return;
+  box.innerHTML='';
   if(!byItemKey.has(key)) return;
-  $('btnGrabarLinea').disabled=false;
+  if($('btnGrabarLinea')) $('btnGrabarLinea').disabled=false;
 
   for(const v of byItemKey.get(key)){
     const eanKey = String(v.ean||'').trim();
@@ -316,7 +326,8 @@ function manualClick(e){
   state.counts.set(ean,next);
   if(b.dataset.a==='+'){ state.undo.push(ean); state.lastEan = ean; beep(); vibrate(); }
 
-  $('u_'+ean).textContent=next;
+  const el = $('u_'+ean);
+  if(el) el.textContent=next;
   updateStats();
 }
 
@@ -336,8 +347,8 @@ function buildCSV(){
     const it=byEan.get(String(ean).trim());
     if(!it) continue;
 
-    // ✅ concepto = codigo del artículo (el “100”)
-    const concepto = unq(it.codigo || it.concepto || '');
+    // ✅ concepto = “codigo” del catálogo (100)
+    const concepto = unq(it.concepto || it.codigo || '');
 
     rows.push([
       f,
@@ -357,8 +368,13 @@ function buildCSV(){
 /* ===================== COMPARTIR ===================== */
 async function compartirCSV(){
   const csv=buildCSV();
+
+  // ✅ evita “mismo nombre distinto contenido”
   const rnd = Math.random().toString(16).slice(2,8);
-  const name = `balance_${state.sesionId}_${state.tienda}_${state.uso}_${rnd}.csv`;
+  const safeTienda = String(state.tienda||'').replace(/\s+/g,'_') || 'sin_tienda';
+  const safeUso = String(state.uso||'').replace(/\s+/g,'_') || 'sin_uso';
+  const name = `balance_${state.sesionId||'sin_sesion'}_${safeTienda}_${safeUso}_${rnd}.csv`;
+
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
 
   if(navigator.share){
@@ -421,7 +437,7 @@ function rebuildResumen(){
   }
 
   lines.push(`TOTAL ALBARAN ${totalAlbaran}`);
-  $('csvPreview').value = lines.join('\n');
+  if($('csvPreview')) $('csvPreview').value = lines.join('\n');
 }
 
 /* ===================== CAMARA (BarcodeDetector) + TORCH + ANTI-DUPLICADOS FUERTE ===================== */
@@ -436,13 +452,12 @@ let videoTrack = null;
 // estado lectura
 let lastSeen = { value:null, stableCount:0, locked:false };
 
-// ✅ anti-duplicado fuerte
+// ✅ anti-duplicado fuerte (GLOBAL)
 let lastScanAt = 0;
-const SCAN_COOLDOWN_MS = 2500;      // retardo mínimo entre lecturas (mismo o distinto)
-const STABLE_FRAMES = 4;            // “estabilidad” necesaria antes de aceptar
-const LOST_FRAMES_TO_UNLOCK = 10;   // necesita X frames sin ver nada para desbloquear
+const SCAN_COOLDOWN_MS = 2500;      // mínimo 2.5s entre lecturas (cualquier código)
+const STABLE_FRAMES = 4;            // estabilidad necesaria
+const LOST_FRAMES_TO_UNLOCK = 10;   // frames “vacíos” para desbloquear
 let lostFrames = 0;
-let lastAcceptedValue = null;
 
 async function initBarcodeDetector(){
   if ('BarcodeDetector' in window) {
@@ -497,8 +512,9 @@ async function startCamera(){
   if(!ensureSesion()) return;
 
   try{
+    // un pelín más “pro” (ayuda en Samsung nuevos)
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode:'environment', width:{ideal:1280}, height:{ideal:720} },
+      video: { facingMode:'environment', width:{ideal:1920}, height:{ideal:1080} },
       audio: false
     });
 
@@ -527,15 +543,13 @@ async function startCamera(){
 
   const ok = await initBarcodeDetector();
   if(!ok){
-    // iPhone Safari normalmente cae aquí (BarcodeDetector no disponible)
-    toast('iPhone', 'Safari no soporta este escaneo. Usa Chrome iOS o escaneo manual.');
+    toast('iPhone', 'Safari suele no soportar escaneo. Usa modo manual o integra ZXing/Quagga.');
     return;
   }
 
-  // reset lock + anti-dup
+  // reset locks
   lastSeen = { value:null, stableCount:0, locked:false };
   lostFrames = 0;
-  lastAcceptedValue = null;
   lastScanAt = 0;
 
   scanning = true;
@@ -578,7 +592,7 @@ async function loopScan(){
   try{
     const codes = await barcodeDetector.detect($('video'));
 
-    // ✅ si no ve nada: NO desbloquear al instante, espera LOST_FRAMES_TO_UNLOCK
+    // si no ve nada: desbloquea con histéresis
     if(!codes || !codes.length){
       lostFrames++;
       if(lostFrames >= LOST_FRAMES_TO_UNLOCK){
@@ -597,7 +611,7 @@ async function loopScan(){
       return;
     }
 
-    // si está bloqueado y aparece OTRO código, cambia y deja estabilizar
+    // si está bloqueado y ve otro código: cambia y deja estabilizar
     if(lastSeen.locked && lastSeen.value !== raw){
       lastSeen.value = raw;
       lastSeen.stableCount = 1;
@@ -606,7 +620,7 @@ async function loopScan(){
       return;
     }
 
-    // si sigue bloqueado con el mismo, no suma
+    // si bloqueado mismo: nada
     if(lastSeen.locked && lastSeen.value === raw){
       rafId = requestAnimationFrame(loopScan);
       return;
@@ -622,16 +636,14 @@ async function loopScan(){
 
     const now = Date.now();
 
-    // ✅ si es el mismo EAN del último aceptado y aún no pasó el cooldown → ignora
-    if (raw === lastAcceptedValue && (now - lastScanAt) < SCAN_COOLDOWN_MS){
+    // ✅ COOLDOWN GLOBAL: nunca más de 1 lectura cada X ms (evita duplicados sí o sí)
+    if ((now - lastScanAt) < SCAN_COOLDOWN_MS){
       rafId = requestAnimationFrame(loopScan);
       return;
     }
 
-    // ✅ acepta UNA vez y bloquea
-    if(!lastSeen.locked && lastSeen.stableCount >= STABLE_FRAMES && (now - lastScanAt) >= SCAN_COOLDOWN_MS){
+    if(!lastSeen.locked && lastSeen.stableCount >= STABLE_FRAMES){
       lastScanAt = now;
-      lastAcceptedValue = raw;
       addOneByEan(raw);
       lastSeen.locked = true;
     }
@@ -685,9 +697,10 @@ function ensureCentralOption(){
   const el = $('tienda');
   if(!el) return;
 
-  // si es <select>, añade option Central
   if (el.tagName === 'SELECT'){
-    const has = Array.from(el.options).some(o => String(o.value).toLowerCase() === 'central' || String(o.text).toLowerCase() === 'central');
+    const has = Array.from(el.options).some(o =>
+      String(o.value).toLowerCase() === 'central' || String(o.text).toLowerCase() === 'central'
+    );
     if(!has){
       const opt = document.createElement('option');
       opt.value = 'Central';
@@ -699,41 +712,40 @@ function ensureCentralOption(){
 
 window.addEventListener('DOMContentLoaded', async ()=>{
   await loadCatalogo();
-
   ensureCentralOption();
 
   loadSession(false);
 
-  $('tabScan').onclick = ()=>setTab('tabScan');
-  $('tabManual').onclick = ()=>setTab('tabManual');
-  $('tabResumen').onclick = ()=>setTab('tabResumen');
+  if ($('tabScan')) $('tabScan').onclick = ()=>setTab('tabScan');
+  if ($('tabManual')) $('tabManual').onclick = ()=>setTab('tabManual');
+  if ($('tabResumen')) $('tabResumen').onclick = ()=>setTab('tabResumen');
 
   if ($('btnStartCam')) $('btnStartCam').onclick = startCamera;
   if ($('btnStopCam')) $('btnStopCam').onclick = stopCamera;
   if ($('btnTorch')) $('btnTorch').onclick = toggleTorch;
 
-  $('btnNuevaSesion').onclick = nuevaSesion;
-  $('btnCargarSesion').onclick = ()=>loadSession(true);
+  if ($('btnNuevaSesion')) $('btnNuevaSesion').onclick = nuevaSesion;
+  if ($('btnCargarSesion')) $('btnCargarSesion').onclick = ()=>loadSession(true);
 
-  $('tienda').onchange = e => { state.tienda = e.target.value; updateStats(); };
-  $('uso').onchange = e => { state.uso = e.target.value; updateStats(); };
+  if ($('tienda')) $('tienda').onchange = e => { state.tienda = e.target.value; updateStats(); };
+  if ($('uso')) $('uso').onchange = e => { state.uso = e.target.value; updateStats(); };
 
-  $('buscar').oninput = e => fillResultados(e.target.value);
-  $('resultado').onchange = e => renderManualItem(e.target.value);
-  $('manualBox').onclick = manualClick;
+  if ($('buscar')) $('buscar').oninput = e => fillResultados(e.target.value);
+  if ($('resultado')) $('resultado').onchange = e => renderManualItem(e.target.value);
+  if ($('manualBox')) $('manualBox').onclick = manualClick;
 
-  $('btnUndo').onclick = undo;
+  if ($('btnUndo')) $('btnUndo').onclick = undo;
 
-  $('btnAddByEan').onclick = ()=>{
+  if ($('btnAddByEan')) $('btnAddByEan').onclick = ()=>{
     if(!ensureSesion()) return;
     const ean = prompt('EAN a sumar (+1):');
     if(ean) addOneByEan(ean);
   };
 
-  $('btnExport').onclick = compartirCSV;
-  $('btnCompartir').onclick = compartirCSV;
+  if ($('btnExport')) $('btnExport').onclick = compartirCSV;
+  if ($('btnCompartir')) $('btnCompartir').onclick = compartirCSV;
 
-  $('btnLimpiar').onclick = ()=>{
+  if ($('btnLimpiar')) $('btnLimpiar').onclick = ()=>{
     if(!confirm('¿Poner todas las unidades a 0?')) return;
     stopCamera();
     state.counts = new Map();
