@@ -357,7 +357,8 @@ function buildCSV(){
 /* ===================== COMPARTIR ===================== */
 async function compartirCSV(){
   const csv=buildCSV();
-  const name=`balance_${state.sesionId||'sin_sesion'}.csv`;
+  const rnd = Math.random().toString(16).slice(2,8);
+  const name = `balance_${state.sesionId}_${state.tienda}_${state.uso}_${rnd}.csv`;
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
 
   if(navigator.share){
